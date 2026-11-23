@@ -13,11 +13,21 @@ AGENT_PLIST="$HOME/Library/LaunchAgents/$AGENT_LABEL.plist"
 
 # A real certificate keeps the code signature's identity stable across rebuilds, so macOS
 # permissions (Automation for Ghostty) are granted once. Ad-hoc signing changes every build.
+# Pick the certificate by its SHA-1 hash: a keychain often holds several with the same name,
+# and codesign rejects a name that matches more than one as "ambiguous".
 SIGN_ID="${DEKHREKH_SIGN_ID:-$(security find-identity -v -p codesigning 2>/dev/null \
-  | awk -F'"' '/Apple Development/ {print $2; exit}')}"
+  | awk '/Apple Development/ && !/CSSMERR/ {print $2; exit}')}"
 SIGN_ID="${SIGN_ID:--}"
 
-sign() { codesign --force --sign "$SIGN_ID" "$1" >/dev/null 2>&1; }
+sign() {
+  local out
+  if ! out="$(codesign --force --sign "$SIGN_ID" "$1" 2>&1)"; then
+    echo "codesign failed for $1 (identity: $SIGN_ID):" >&2
+    echo "$out" >&2
+    echo "Set DEKHREKH_SIGN_ID=- to sign ad-hoc instead." >&2
+    exit 1
+  fi
+}
 
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
