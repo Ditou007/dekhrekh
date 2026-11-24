@@ -48,7 +48,7 @@ final class CIClient {
     private func fetch(_ repo: RepoWatch) async -> RepoCI {
         do {
             let runs = try await loadRuns(repo, retryOnAuth: true)
-            return summarise(repo: repo, runs: runs)
+            return summarise(repo: repo, runs: runs, live: await liveBranches(repo))
         } catch {
             return RepoCI(label: repo.label, failures: [], running: 0, queued: 0,
                           error: error.localizedDescription, checkedAt: Date())
@@ -75,7 +75,25 @@ final class CIClient {
         return obj?["workflow_runs"] as? [[String: Any]] ?? []
     }
 
-    private func summarise(repo: RepoWatch, runs: [[String: Any]]) -> RepoCI {
+    /// Branches whose failures matter: the default branch, every open PR's head, and branches named in
+    /// the config. A red run on a closed PR's branch or an unpushed-for-review branch is not a failure
+    /// anyone needs to act on. Nil when GitHub cannot be read, so nothing is hidden by mistake.
+    private func liveBranches(_ repo: RepoWatch) async -> Set<String>? {
+        func get(_ path: String) async -> Any? {
+            guard let req = try? authorizedRequest(URL(string: "https://api.github.com/repos/\(repo.fullName)\(path)")!, user: repo.ghUser),
+                  let (data, resp) = try? await URLSession.shared.data(for: req),
+                  (resp as? HTTPURLResponse)?.statusCode == 200
+            else { return nil }
+            return try? JSONSerialization.jsonObject(with: data)
+        }
+        guard let info = await get("") as? [String: Any], let main = info["default_branch"] as? String,
+              let pulls = await get("/pulls?state=open&per_page=100") as? [[String: Any]]
+        else { return nil }
+        let heads = pulls.compactMap { ($0["head"] as? [String: Any])?["ref"] as? String }
+        return Set(heads).union(repo.branches).union([main])
+    }
+
+    private func summarise(repo: RepoWatch, runs: [[String: Any]], live: Set<String>?) -> RepoCI {
         let relevant = runs.filter { run in
             guard !(repo.actors.isEmpty && repo.branches.isEmpty) else { return true }
             let actor = (run["actor"] as? [String: Any])?["login"] as? String ?? ""
@@ -92,7 +110,8 @@ final class CIClient {
         }.runs
 
         let failures = latest.compactMap { run -> FailedRun? in
-            guard run["status"] as? String == "completed",
+            guard live.map({ $0.contains(run["head_branch"] as? String ?? "") }) ?? true,
+                  run["status"] as? String == "completed",
                   failedConclusions.contains(run["conclusion"] as? String ?? ""),
                   let id = (run["id"] as? NSNumber)?.intValue,
                   let url = URL(string: run["html_url"] as? String ?? "")
