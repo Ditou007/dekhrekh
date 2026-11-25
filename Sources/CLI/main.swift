@@ -253,7 +253,7 @@ if sections.contains("ci") {
 
 if sections.contains("sessions") {
     blocks.append {
-        header("Claude sessions (\(sessions.count) live)")
+        header("Claude sessions (\(sessionCountLabel(sessions)))")
         for s in sessions {
             let status: String = {
                 switch s.status {

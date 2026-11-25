@@ -47,6 +47,9 @@ final class Store: ObservableObject {
     @Published private(set) var prErrors: [String] = []
     private(set) var usageSamples: [UsageHistory.Sample] = UsageHistory.read()
     @Published private(set) var topApps: [AppMemory] = []
+    @Published var prsExpanded = UserDefaults.standard.object(forKey: "prsExpanded") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(prsExpanded, forKey: "prsExpanded") }
+    }
     @Published var memoryExpanded = UserDefaults.standard.bool(forKey: "memoryExpanded") {
         didSet {
             UserDefaults.standard.set(memoryExpanded, forKey: "memoryExpanded")
@@ -271,7 +274,12 @@ final class Store: ObservableObject {
     var failureCount: Int { ci.reduce(0) { $0 + $1.failures.filter { !$0.scheduled }.count } }
     var nightlyFailureCount: Int { ci.reduce(0) { $0 + $1.failures.filter(\.scheduled).count } }
     var lowContextCount: Int {
-        sessions.filter { ($0.ctxRemaining ?? 100) <= Config.ctxCriticalRemaining }.count
+        // Only sessions the panel can act on: a background session gets no handoff button, and one
+        // that already wrote its handoff has a continuation.
+        sessions.filter {
+            ($0.ctxRemaining ?? 100) <= Config.ctxCriticalRemaining && !$0.isBackground
+                && !handedOff.contains(String($0.id.prefix(8)))
+        }.count
     }
 
     var attention: Attention {

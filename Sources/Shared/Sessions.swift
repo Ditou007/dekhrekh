@@ -14,6 +14,12 @@ enum SessionStatus: String {
     }
 }
 
+/// "3 live" or "3 live · 1 background": background sessions (no terminal tab) are counted apart.
+func sessionCountLabel(_ sessions: [Session]) -> String {
+    let bg = sessions.filter(\.isBackground).count
+    return "\(sessions.count - bg) live" + (bg > 0 ? " · \(bg) background" : "")
+}
+
 struct Session: Identifiable {
     let id: String
     let pid: Int32

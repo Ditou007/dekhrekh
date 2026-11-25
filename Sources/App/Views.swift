@@ -74,6 +74,8 @@ struct Pill: View {
     var body: some View {
         Text(text)
             .font(Type.small.weight(.semibold))
+            .lineLimit(1)
+            .fixedSize()
             .foregroundColor(filled ? color : Palette.dim)
             .padding(.horizontal, 6)
             .padding(.vertical, 2)
@@ -205,9 +207,23 @@ struct PanelView: View {
             Image(systemName: Config.iconSymbol)
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundColor(Palette.attention(store.attention))
-            Text(Config.appName).font(Type.title)
-            Spacer(minLength: 6)
-            headerPills
+            // The first layout that fits on one line: full title and pills, then pills only, then
+            // short pills. Nothing wraps, so the bar keeps its height however many alerts are up.
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 6) {
+                    Text(Config.appName).font(Type.title).lineLimit(1).fixedSize()
+                    Spacer(minLength: 6)
+                    headerPills(short: false)
+                }
+                HStack(spacing: 6) {
+                    Spacer(minLength: 0)
+                    headerPills(short: false)
+                }
+                HStack(spacing: 6) {
+                    Spacer(minLength: 0)
+                    headerPills(short: true)
+                }
+            }
             Button { store.compact.toggle() } label: {
                 Image(systemName: store.compact ? "chevron.down" : "chevron.up")
                     .font(.system(size: 9, weight: .bold))
@@ -224,25 +240,28 @@ struct PanelView: View {
     }
 
     @ViewBuilder
-    private var headerPills: some View {
+    private func headerPills(short: Bool) -> some View {
         let any = store.failureCount + store.waitingCount + store.askingCount + store.lowContextCount + store.prsNeedingYou > 0
         if !any && store.attention == .calm {
-            Text("All clear").font(Type.small).foregroundColor(Palette.dim)
+            Text("All clear").font(Type.small).foregroundColor(Palette.dim).lineLimit(1).fixedSize()
         }
         if store.failureCount > 0 {
             Pill(text: "\(store.failureCount) CI", color: Palette.bad)
         }
         if store.askingCount > 0 {
-            Pill(text: "\(store.askingCount) asking", color: Palette.warn)
+            Pill(text: "\(store.askingCount) \(short ? "ask" : "asking")", color: Palette.warn)
+                .help("\(store.askingCount) session(s) ended their turn with a question for you")
         }
         if store.waitingCount > 0 {
-            Pill(text: "\(store.waitingCount) waiting", color: Palette.warn)
+            Pill(text: "\(store.waitingCount) \(short ? "wait" : "waiting")", color: Palette.warn)
+                .help("\(store.waitingCount) session(s) waiting on a permission prompt or input")
         }
         if store.prsNeedingYou > 0 {
             Pill(text: "\(store.prsNeedingYou) PR", color: Palette.busy)
         }
         if store.lowContextCount > 0 {
-            Pill(text: "\(store.lowContextCount) low ctx", color: Palette.bad)
+            Pill(text: "\(store.lowContextCount) \(short ? "ctx" : "low ctx")", color: Palette.bad)
+                .help("\(store.lowContextCount) session(s) below \(Int(Config.ctxCriticalRemaining))% context")
         }
     }
 
@@ -316,11 +335,36 @@ struct PanelView: View {
     private var prSection: some View {
         let active = store.prs.filter { $0.state.needsYou || $0.state == .checksRunning }
         let parked = store.prs.filter { !($0.state.needsYou || $0.state == .checksRunning) }
-        SectionLabel(title: "Pull requests", trailing: store.prs.isEmpty ? nil : "\(store.prs.count) open")
+        Button { store.prsExpanded.toggle() } label: {
+            HStack(spacing: 4) {
+                Text("PULL REQUESTS").font(Type.label).tracking(0.9).foregroundColor(Palette.faint)
+                Image(systemName: store.prsExpanded ? "chevron.down" : "chevron.right")
+                    .font(.system(size: 7, weight: .bold))
+                    .foregroundColor(Palette.faint)
+                Spacer()
+                if !store.prs.isEmpty {
+                    Text("\(store.prs.count) open").font(Type.numSmall).foregroundColor(Palette.faint)
+                }
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        if !store.prsExpanded, !store.prs.isEmpty {
+            // Folded: one line per state, worst first, e.g. "1 checks failing · 6 awaiting review".
+            let byState = Dictionary(grouping: store.prs, by: \.state).sorted { $0.key < $1.key }
+            HStack(spacing: 0) {
+                ForEach(Array(byState.enumerated()), id: \.element.key) { i, group in
+                    if i > 0 { Text(" · ").font(Type.small).foregroundColor(Palette.faint) }
+                    Text("\(group.value.count) \(group.key.label)").font(Type.small).foregroundColor(prColor(group.key))
+                }
+            }
+            .padding(.horizontal, 6)
+        }
         if store.prs.isEmpty {
             Text(store.prErrors.first ?? "Nothing open").font(Type.small).foregroundColor(Palette.dim)
         }
         let shownActive = showAllActivePRs ? Array(active) : Array(active.prefix(Config.prRowsLimit))
+        if store.prsExpanded {
         VStack(spacing: 1) {
             ForEach(shownActive) { pr in prRow(pr) }
             if active.count > Config.prRowsLimit {
@@ -339,6 +383,7 @@ struct PanelView: View {
                     ForEach(items) { pr in prRow(pr) }
                 }
             }
+        }
         }
     }
 
@@ -385,7 +430,7 @@ struct PanelView: View {
 
     @ViewBuilder
     private var sessionSection: some View {
-        SectionLabel(title: "Claude sessions", trailing: "\(store.sessions.count) live")
+        SectionLabel(title: "Claude sessions", trailing: sessionCountLabel(store.sessions))
         if let snap = store.restorable {
             restoreBanner(snap)
         }
