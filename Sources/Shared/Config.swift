@@ -21,8 +21,11 @@ struct Profile: Hashable {
     let tag: String
     /// The Claude Code config dir: `~/.claude`, or whatever `CLAUDE_CONFIG_DIR` points at.
     let claudeDir: URL
-    /// Shell command that starts Claude Code with this profile (handoff, restore).
+    /// Shell command that starts Claude Code with this profile (handoff, restore, move).
     let launch: String
+    /// Profiles with the same group can take over each other's sessions ("Continue on ..."):
+    /// two work accounts, say, but never a work session onto a personal one. Empty is a group too.
+    let group: String
 
     var rawValue: String { name }
     var sessionsDir: URL { claudeDir.appendingPathComponent("sessions") }
@@ -82,11 +85,12 @@ struct UserConfig {
         let list = (raw as? [[String: Any]] ?? []).compactMap { p -> Profile? in
             guard let name = p["name"] as? String, let dir = p["claudeDir"] as? String else { return nil }
             return Profile(name: name, title: p["title"] as? String ?? name, tag: p["tag"] as? String ?? "",
-                           claudeDir: URL(fileURLWithPath: expand(dir)), launch: p["launch"] as? String ?? "claude")
+                           claudeDir: URL(fileURLWithPath: expand(dir)), launch: p["launch"] as? String ?? "claude",
+                           group: p["group"] as? String ?? "")
         }
         if !list.isEmpty { return list }
         let dir = ProcessInfo.processInfo.environment["CLAUDE_CONFIG_DIR"].map(expand) ?? Config.home.appendingPathComponent(".claude").path
-        return [Profile(name: "default", title: "Claude Code", tag: "", claudeDir: URL(fileURLWithPath: dir), launch: "claude")]
+        return [Profile(name: "default", title: "Claude Code", tag: "", claudeDir: URL(fileURLWithPath: dir), launch: "claude", group: "")]
     }
 
     private static func parseRepos(_ raw: Any?, ghPath: String) -> [RepoWatch] {

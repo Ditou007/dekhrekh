@@ -135,7 +135,7 @@ func runConfig() -> Never {
     if let e = u.loadError { print("error    \(e)") }
     print("state    \(u.stateDir.path)")
     print("gh       \(u.ghPath)")
-    for p in u.profiles { print("profile  \(p.name)  \(p.claudeDir.path)  launch: \(p.launch)\(p.tag.isEmpty ? "" : "  tag: \(p.tag)")") }
+    for p in u.profiles { print("profile  \(p.name)  \(p.claudeDir.path)  launch: \(p.launch)\(p.tag.isEmpty ? "" : "  tag: \(p.tag)")\(p.group.isEmpty ? "" : "  group: \(p.group)")") }
     if u.repos.isEmpty { print("repos    none (CI and PR sections hidden)") }
     for r in u.repos { print("repo     \(r.label)  \(r.fullName)  as \(r.ghUser.isEmpty ? "?" : r.ghUser)") }
     print("server   \(u.server.map { "\($0.title)  \($0.url.absoluteString)" } ?? "none (card hidden)")")

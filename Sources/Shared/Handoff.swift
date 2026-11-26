@@ -109,7 +109,7 @@ enum Handoff {
         return .success(file.path)
     }
 
-    private static func openTab(cwd: String, command: String) -> String? {
+    static func openTab(cwd: String, command: String) -> String? {
         let script = """
         tell application "Ghostty"
           activate
@@ -124,7 +124,7 @@ enum Handoff {
         return error.map { ($0[NSAppleScript.errorMessage] as? String) ?? "\($0)" }
     }
 
-    private static func shellQuote(_ s: String) -> String { "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'" }
+    static func shellQuote(_ s: String) -> String { "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'" }
     private static func appleEscape(_ s: String) -> String {
         s.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
     }

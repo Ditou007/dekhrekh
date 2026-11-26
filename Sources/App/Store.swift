@@ -208,6 +208,27 @@ final class Store: ObservableObject {
         }
     }
 
+    /// The account this session can continue on, when its own is near a limit.
+    func moveTarget(_ s: Session) -> Profile? { Move.offer(for: s, usage: usage) }
+
+    func move(_ s: Session, to target: Profile) {
+        handoffStatus[s.id] = "Moving to \(target.title)..."
+        let statusline = SessionReader.readStatusline()
+        let usage = self.usage
+        DispatchQueue.global(qos: .userInitiated).async {
+            let result = Move.run(s, to: target, statusline: statusline, usage: usage, force: false) { line in
+                DispatchQueue.main.async { self.handoffStatus[s.id] = "Moving: " + line }
+            }
+            DispatchQueue.main.async {
+                switch result {
+                case .success(let p): self.handoffStatus[s.id] = "Continues on \(p.title) in a new Ghostty tab."
+                case .failure(let why): self.handoffStatus[s.id] = "Not moved: \(why)"
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 120) { self.handoffStatus[s.id] = nil }
+            }
+        }
+    }
+
     func refreshPRs() {
         Task {
             let result = await client.fetchPRs()

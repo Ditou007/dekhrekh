@@ -23,6 +23,8 @@ ci --wait [branch] [--repo=<label>] [--timeout=min] [--log-lines=n]
 
 handoff <session> [--force]  the session writes a handoff, then a new session (same folder, profile,
                  model, effort) opens in Ghostty and continues from it (the panel's "Hand off" button)
+move <session> [--to=<profile>] [--force]  the session exits and the same conversation resumes on
+                 another account of its group (most headroom first), in a new Ghostty tab
 tell <session> "<message>"  type a message into that session's Ghostty tab (from your own terminal).
                  Agents: it refuses and prints the session's message name for the SendMessage tool.
 restore [--dry-run]  reopen, in Ghostty, the Claude sessions open before the last restart
@@ -61,6 +63,9 @@ if args.first == "config" {
 }
 if args.first == "handoff" {
     runHandoff(args: Array(args))
+}
+if args.first == "move" {
+    runMove(args: Array(args))
 }
 if args.first == "tell" {
     runTell(args: Array(args))

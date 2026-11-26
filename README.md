@@ -18,6 +18,8 @@ Your agents get the same view from the terminal, so they can coordinate without 
   instead of asking you whether CI passed.
 - **Context handoffs.** When a session drops below 30% context, one click has it write a handoff and
   opens a fresh session that continues from it. Results from subagents it still has running are passed on.
+- **Account limits.** With two accounts on the same kind of work, a session whose account nears its
+  5-hour or weekly limit gets a "Continue on ..." button: it exits and resumes, same conversation, on the other.
 
 It watches the sessions you start in your own terminal. There is no wrapper to adopt.
 
@@ -93,7 +95,7 @@ server sections. To change that, create `~/.config/dekhrekh/config.json`. Every 
 
 | Key | Meaning |
 |-----|---------|
-| `profiles` | One per Claude Code config folder. `launch` starts Claude Code with that profile (used by handoff and restore); `tag` labels its sessions. |
+| `profiles` | One per Claude Code config folder. `launch` starts Claude Code with that profile (used by handoff, restore and move); `tag` labels its sessions. `group`: profiles in the same group can take over each other's sessions when one nears its usage limit (two work accounts, not work and personal). Moving needs the profiles to share `projects/` (a symlink), where the conversations live. |
 | `repos` | GitHub repos to watch. `ghUser` picks a `gh` account if you have several. With `actors` or `branches`, only those runs count. |
 | `server` | Turns on the server card. `parked` lists machines stopped on purpose. |
 | `stateDir` | Where Dekhrekh keeps its files (default `~/.claude/state/dekhrekh`). |
@@ -143,6 +145,7 @@ USAGE
 | `dekhrekh claim "<repo>: <branch> - <what>"` / `claims` | Record what this session is changing / list every session's claim |
 | `dekhrekh ci --wait` / `ci --stats` | Wait for CI on this branch and print the failing step / queue and run times per job |
 | `dekhrekh handoff <session>` | The panel's handoff button |
+| `dekhrekh move <session> [--to=<profile>]` | The panel's "Continue on ..." button: the session exits and the same conversation resumes on another account of its group |
 | `dekhrekh tell <session> "…"` | Type a message into another session's tab (from your own terminal) |
 | `dekhrekh restore` | Reopen the sessions that were open before a restart |
 
