@@ -501,10 +501,10 @@ struct PanelView: View {
                         .help("Asks this session to write a handoff, then opens a new session with the same folder, account, model and effort that continues from it. This session stays open.")
                 }
                 if store.handoffStatus[s.id] == nil, let t = store.moveTarget(s) {
-                    Button("Continue on \(t.title)") { store.move(s, to: t) }
+                    Button("Continue on \(t.title)" + (Move.seen(t, store.usage) ? "" : " (limits not seen)")) { store.move(s, to: t) }
                         .controlSize(.small)
                         .padding(.leading, 20)
-                        .help("\(s.profile.title) is near its usage limit. Exits this session and resumes the same conversation on \(t.title) in a new Ghostty tab, same folder, model and effort. Only when the session is between turns.")
+                        .help("\(s.profile.title) is near its usage limit. Exits this session and resumes the same conversation on \(t.title) in a new Ghostty tab, same folder, model and effort. Only when the session is between turns." + (Move.seen(t, store.usage) ? "" : " \(t.title) has not reported its limits yet; an account that is already out never does, so check it has room."))
                 }
             }
         }

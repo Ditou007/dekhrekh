@@ -34,6 +34,7 @@ func runMove(args: [String]) -> Never {
     switch result {
     case .success(let p):
         print("done: \(s.name) continues on \(p.title)")
+        if !Move.seen(p, usage) { print("note: \(p.title) has not reported its limits yet; if it is already out, the new session will say so") }
         exit(0)
     case .failure(let why):
         print("not done: \(why)")

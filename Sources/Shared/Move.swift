@@ -35,11 +35,18 @@ enum Move {
         return [u.fiveHour, u.sevenDay].compactMap { $0 }.filter { $0.resetsAt > now }.map(\.usedPercent).max() ?? 0
     }
 
+    /// Whether this account's limits have been seen. An account that is already out never reports
+    /// them (Claude Code only sends them with a successful reply), so unseen can mean full.
+    static func seen(_ p: Profile, _ usage: [AccountUsage]) -> Bool {
+        usage.contains { $0.profile == p }
+    }
+
     /// Profiles that can take this session, most headroom first.
     static func targets(for s: Session, usage: [AccountUsage]) -> [Profile] {
         Config.profiles
             .filter { $0 != s.profile && $0.group == s.profile.group }
-            .sorted { used($0, usage) < used($1, usage) }
+            // Seen accounts with room first: an unseen one may be out.
+            .sorted { (seen($0, usage) ? 0 : 1, used($0, usage)) < (seen($1, usage) ? 0 : 1, used($1, usage)) }
     }
 
     /// The profile the panel offers, when the session's own account is near a limit and another has room.
