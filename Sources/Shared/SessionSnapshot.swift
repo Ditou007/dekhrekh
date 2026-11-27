@@ -53,11 +53,10 @@ enum SessionSnapshots {
     static func save(_ sessions: [Session], statusline: StatusFeeds, bootTime: Date,
                      branch: (String) -> String? = { _ in nil }) {
         rotateIfRebooted(bootTime: bootTime)
-        let keep = sessions
-        guard !keep.isEmpty else { return }
-        let saved = keep.map { s in
+        guard !sessions.isEmpty else { return }
+        let saved = sessions.map { s in
             SavedSession(
-                sessionId: s.id, name: s.name, cwd: s.cwd, profile: s.profile.rawValue,
+                sessionId: s.id, name: s.name, cwd: s.cwd, profile: s.profile.name,
                 branch: branch(s.cwd), claim: Claims.read(for: s.id)?.note,
                 lastPrompt: TranscriptReader.context(for: s, statusline: statusline,
                                                      prompts: 1, replies: 0, actions: 0).lastPrompt
