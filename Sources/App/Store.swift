@@ -141,10 +141,7 @@ final class Store: ObservableObject {
         claims = scan.claims
         handedOff = scan.handedOff
         subagents = scan.subagents
-        restartCheck = RestartCheck(
-            busy: fresh.filter { !$0.isBackground && ($0.status == .busy || $0.status == .shell) },
-            subagents: fresh.compactMap { s in scan.subagents[s.id].map { (s, $0) } }
-        )
+        restartCheck = RestartCheck(sessions: fresh, subagents: scan.subagents)
         questions = scan.questions
         let asking = Set(questions.keys)
         if !asking.subtracting(knownAsking).isEmpty { chime(.newWaiting) }

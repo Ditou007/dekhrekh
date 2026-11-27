@@ -33,7 +33,7 @@ func runShow(query: String, json: Bool) -> Never {
     if json {
         let out: [String: Any] = [
             "name": s.name, "title": ctx.title ?? NSNull(), "session_id": s.id, "pid": s.pid,
-            "profile": s.profile.rawValue, "status": s.status.rawValue,
+            "profile": s.profile.name, "status": s.status.rawValue,
             "status_since": iso.string(from: s.statusSince),
             "cwd": s.cwd, "branch": branch ?? NSNull(),
             "context_remaining_pct": s.ctxRemaining ?? NSNull(),

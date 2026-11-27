@@ -125,7 +125,7 @@ if asJSON {
             [
                 "name": s.name, "session_id": s.id, "pid": s.pid, "cwd": s.cwd,
                 "message_name": s.peerName.map { $0 as Any } ?? NSNull(),
-                "profile": s.profile.rawValue, "status": s.status.rawValue,
+                "profile": s.profile.name, "status": s.status.rawValue,
                 "background": s.isBackground,
                 "status_since": iso.string(from: s.statusSince),
                 "context_remaining_pct": s.ctxRemaining.map { $0 as Any } ?? NSNull(),
@@ -140,7 +140,7 @@ if asJSON {
     if sections.contains("usage") {
         out["usage"] = accounts.map { u -> [String: Any] in
             [
-                "profile": u.profile.rawValue,
+                "profile": u.profile.name,
                 "five_hour": windowJSON(u.fiveHour, eta: eta(u, .fiveHour)),
                 "seven_day": windowJSON(u.sevenDay, eta: eta(u, .sevenDay)),
                 "observed_at": iso.string(from: u.observedAt),

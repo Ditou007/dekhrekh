@@ -48,12 +48,21 @@ struct RestartCheck {
     }
 
     static func now(sessions: [Session], statusline: StatusFeeds) -> RestartCheck {
-        RestartCheck(
-            busy: sessions.filter { !$0.isBackground && ($0.status == .busy || $0.status == .shell) },
-            subagents: sessions.compactMap { s in
-                let a = Subagents.running(for: s, statusline: statusline)
-                return a.isEmpty ? nil : (s, a)
-            }
-        )
+        let running = sessions.reduce(into: [String: [RunningSubagent]]()) { acc, s in
+            let a = Subagents.running(for: s, statusline: statusline)
+            if !a.isEmpty { acc[s.id] = a }
+        }
+        return RestartCheck(sessions: sessions, subagents: running)
+    }
+
+    /// Interactive sessions mid-turn, and every session with subagents still running.
+    init(sessions: [Session], subagents: [String: [RunningSubagent]]) {
+        busy = sessions.filter { !$0.isBackground && ($0.status == .busy || $0.status == .shell) }
+        self.subagents = sessions.compactMap { s in subagents[s.id].map { (s, $0) } }
+    }
+
+    init(busy: [Session], subagents: [(session: Session, agents: [RunningSubagent])]) {
+        self.busy = busy
+        self.subagents = subagents
     }
 }

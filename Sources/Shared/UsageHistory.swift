@@ -43,9 +43,9 @@ enum UsageHistory {
             UsageWindow.allCases.compactMap { window in
                 guard let w = u[window] else { return nil }
                 let name = window.rawValue
-                let last = existing.last { $0.profile == u.profile.rawValue && $0.window == name }
+                let last = existing.last { $0.profile == u.profile.name && $0.window == name }
                 let unchanged = last.map { $0.used == w.usedPercent && $0.resetsAt == w.resetsAt.timeIntervalSince1970 } ?? false
-                return unchanged ? nil : Sample(profile: u.profile.rawValue, window: name,
+                return unchanged ? nil : Sample(profile: u.profile.name, window: name,
                                                 resetsAt: w.resetsAt.timeIntervalSince1970,
                                                 used: w.usedPercent, at: u.observedAt.timeIntervalSince1970)
             }
@@ -71,7 +71,7 @@ enum UsageHistory {
         guard current.usedPercent >= minUsedForForecast else { return nil }
         let limits = rateSpan(window)
         let recent = samples.filter {
-            $0.profile == profile.rawValue && $0.window == window.rawValue && $0.resetsAt == r && t - $0.at <= limits.lookback
+            $0.profile == profile.name && $0.window == window.rawValue && $0.resetsAt == r && t - $0.at <= limits.lookback
         }
         guard let first = recent.min(by: { $0.at < $1.at }) else { return nil }
         let span = t - first.at

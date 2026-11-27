@@ -29,7 +29,6 @@ struct Profile: Hashable {
     /// two work accounts, say, but never a work session onto a personal one. Empty is a group too.
     let group: String
 
-    var rawValue: String { name }
     var sessionsDir: URL { claudeDir.appendingPathComponent("sessions") }
     var projectsDir: URL { claudeDir.appendingPathComponent("projects") }
 }
