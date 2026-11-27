@@ -24,8 +24,9 @@ enum GhosttyInput {
     /// AppleScript, run inside `tell application "Ghostty"`, that sets `target` to the session's
     /// terminal, or to missing value. Titles are matched by substring, so `web` also matches
     /// `web-admin`: several title hits are narrowed by folder, and anything still ambiguous is
-    /// left unmatched rather than guessed, since the caller may type into it.
-    static func findTerminal(_ s: Session) -> String {
+    /// left unmatched rather than guessed when the caller types into it. `firstIfAmbiguous` takes the
+    /// first title match instead, for callers that only bring a terminal forward.
+    static func findTerminal(_ s: Session, firstIfAmbiguous: Bool = false) -> String {
         let name = appleScriptString(s.name)
         let cwd = appleScriptString(s.cwd)
         return """
@@ -47,7 +48,11 @@ enum GhosttyInput {
             repeat with term in byName
               if working directory of term is "\(cwd)" then set end of both to term
             end repeat
-            if (count of both) is 1 then set target to item 1 of both
+            if (count of both) is 1 then
+              set target to item 1 of both
+            else if \(firstIfAmbiguous) then
+              set target to item 1 of byName
+            end if
           else if (count of byFolder) is 1 then
             set target to item 1 of byFolder
           end if

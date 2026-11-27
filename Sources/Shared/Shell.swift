@@ -12,9 +12,10 @@ enum Shell {
 
     static let defaultTimeout: TimeInterval = 10
 
-    /// Nil when the program cannot be started or outlives `timeout` (it is then terminated).
-    /// Stdout is drained while the child runs, so large output cannot fill the pipe and stall it;
-    /// stderr is discarded for the same reason.
+    /// Nil when the program cannot be started or outlives `timeout` (it is then killed).
+    /// Stdout is collected while the child runs, so large output cannot fill the pipe and stall it;
+    /// stderr is discarded for the same reason. Output still arriving after the child exits, from
+    /// something it left running in the background, is waited for only briefly.
     static func run(_ executable: String, _ args: [String], timeout: TimeInterval = defaultTimeout,
                     cwd: URL? = nil, environment: [String: String]? = nil) -> Output? {
         let proc = Process()
@@ -27,23 +28,55 @@ enum Shell {
         proc.standardError = FileHandle.nullDevice
         proc.standardInput = FileHandle.nullDevice
 
+        let collected = Collected()
+        let eof = DispatchSemaphore(value: 0)
+        out.fileHandleForReading.readabilityHandler = { h in
+            let chunk = h.availableData
+            if chunk.isEmpty {
+                h.readabilityHandler = nil
+                eof.signal()
+            } else {
+                collected.append(chunk)
+            }
+        }
         let exited = DispatchSemaphore(value: 0)
         proc.terminationHandler = { _ in exited.signal() }
-        guard (try? proc.run()) != nil else { return nil }
-
-        var data = Data()
-        let drained = DispatchSemaphore(value: 0)
-        DispatchQueue.global(qos: .utility).async {
-            data = out.fileHandleForReading.readDataToEndOfFile()
-            drained.signal()
-        }
-        guard exited.wait(timeout: .now() + timeout) == .success else {
-            proc.terminate()
-            _ = exited.wait(timeout: .now() + 1)
+        guard (try? proc.run()) != nil else {
+            out.fileHandleForReading.readabilityHandler = nil
             return nil
         }
-        drained.wait()
-        return Output(status: proc.terminationStatus, stdout: data)
+        defer { out.fileHandleForReading.readabilityHandler = nil }
+
+        guard exited.wait(timeout: .now() + timeout) == .success else {
+            proc.terminate()
+            if exited.wait(timeout: .now() + killGrace) == .timedOut { kill(proc.processIdentifier, SIGKILL) }
+            return nil
+        }
+        _ = eof.wait(timeout: .now() + drainGrace)
+        return Output(status: proc.terminationStatus, stdout: collected.data)
+    }
+
+    /// How long a timed-out child gets to exit after SIGTERM before it is sent SIGKILL.
+    private static let killGrace: TimeInterval = 1
+    /// How long to keep reading after the child exits, for output still in the pipe.
+    private static let drainGrace: TimeInterval = 0.5
+
+    /// Output appended from the pipe's reader thread and read once the child is done.
+    private final class Collected: @unchecked Sendable {
+        private let lock = NSLock()
+        private var buffer = Data()
+
+        func append(_ d: Data) {
+            lock.lock()
+            buffer.append(d)
+            lock.unlock()
+        }
+
+        var data: Data {
+            lock.lock()
+            defer { lock.unlock() }
+            return buffer
+        }
     }
 
     /// The first executable called `name` on `PATH`, then in the usual install folders, since an app

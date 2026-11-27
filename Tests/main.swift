@@ -43,6 +43,16 @@ do {
     check(slow == nil, "a command past its timeout returns nil")
     check(Date().timeIntervalSince(started) < 3, "the timeout is enforced")
 
+    // A background grandchild keeps stdout open after the child exits; the call must not wait for it.
+    let bgStart = Date()
+    let bg = Shell.run("/bin/sh", ["-c", "sleep 6 & echo hi"], timeout: 2)
+    equal(bg?.text, "hi", "output before the child exits is kept")
+    check(Date().timeIntervalSince(bgStart) < 3, "a grandchild holding the pipe does not stall the call")
+
+    let stubborn = Date()
+    check(Shell.run("/bin/sh", ["-c", "trap '' TERM; sleep 6"], timeout: 0.5) == nil, "a child ignoring SIGTERM times out")
+    check(Date().timeIntervalSince(stubborn) < 3, "and is killed")
+
     check(Shell.run("/nonexistent/gh", ["api", "user"]) == nil, "a missing binary returns nil instead of hanging")
     equal(Shell.run("/usr/bin/false", [])?.ok, false, "non-zero exit is reported")
 
@@ -168,6 +178,9 @@ do {
     equal(feed?.model?.id, "claude-opus-5-5", "model")
     equal(feed?.widgetProfile, "work", "profile added by the feed")
     check(StatusFeed.decode(Data("{}".utf8)) == nil, "no session id, no feed")
+    let odd = StatusFeed.decode(Data(#"{"session_id":"x","effort":"high","model":"opus","rate_limits":[],"session_name":"n"}"#.utf8))
+    equal(odd?.sessionName, "n", "an unexpected shape in one field keeps the rest")
+    check(odd?.effort == nil && odd?.rateLimits == nil, "and reads that field as nil")
 }
 
 // MARK: Session matching

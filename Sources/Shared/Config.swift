@@ -221,12 +221,18 @@ enum GitHubLogin {
     private static let lock = NSLock()
     private static var cached: String?
 
+    /// Empty when gh is missing or signed out; a failed lookup is retried on the next call
+    /// (a login item can start before the network is up).
     static var active: String {
         lock.lock()
-        defer { lock.unlock() }
-        if let cached { return cached }
+        let hit = cached
+        lock.unlock()
+        if let hit { return hit }
         let login = stored() ?? fetch()
+        guard !login.isEmpty else { return "" }
+        lock.lock()
         cached = login
+        lock.unlock()
         return login
     }
 

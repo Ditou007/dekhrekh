@@ -83,9 +83,12 @@ enum MemoryReader {
         // Layout: argc (Int32), exec path, NUL padding, argc NUL-terminated arguments, then the
         // environment, which is left out so a PATH entry cannot match a role.
         let argc = Int(buf.withUnsafeBytes { $0.load(as: Int32.self) })
-        let fields = buf.prefix(size).dropFirst(MemoryLayout<Int32>.size)
-            .split(separator: 0, omittingEmptySubsequences: true)
-        let argv = fields.dropFirst().prefix(argc)
+        let afterArgc = buf.prefix(size).dropFirst(MemoryLayout<Int32>.size)
+        guard let pathEnd = afterArgc.firstIndex(of: 0),
+              let argvStart = afterArgc[pathEnd...].firstIndex(where: { $0 != 0 })
+        else { return nil }
+        // Empty arguments are real argv entries, so empty fields are kept while counting argc.
+        let argv = afterArgc[argvStart...].split(separator: 0, omittingEmptySubsequences: false).prefix(argc)
         return argv.map { String(decoding: $0, as: UTF8.self) }.joined(separator: " ")
     }
 

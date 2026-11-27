@@ -2,8 +2,8 @@ import Foundation
 
 /// One session's latest status-line payload, as `dekhrekh feed statusline` saved it: the JSON Claude
 /// Code passes to its status-line command, plus `widget_profile` and `widget_ts` added by the feed.
-/// Only the fields read here are decoded; everything is optional because older Claude Code versions
-/// leave some out.
+/// Only the fields read here are decoded. Only `session_id` is required: any other field that is
+/// missing or has an unexpected shape is read as nil, so one changed field cannot hide the session.
 struct StatusFeed: Decodable {
     struct ContextWindow: Decodable { let remainingPercentage: Double? }
     struct Window: Decodable {
@@ -28,6 +28,26 @@ struct StatusFeed: Decodable {
     let effort: Effort?
     let widgetProfile: String?
     let widgetTs: Double?
+
+    private enum CodingKeys: String, CodingKey {
+        case sessionId, sessionName, transcriptPath, contextWindow, rateLimits, cost, model, effort
+        case widgetProfile, widgetTs
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        func field<T: Decodable>(_ key: CodingKeys) -> T? { (try? c.decodeIfPresent(T.self, forKey: key)) ?? nil }
+        sessionId = try c.decode(String.self, forKey: .sessionId)
+        sessionName = field(.sessionName)
+        transcriptPath = field(.transcriptPath)
+        contextWindow = field(.contextWindow)
+        rateLimits = field(.rateLimits)
+        cost = field(.cost)
+        model = field(.model)
+        effort = field(.effort)
+        widgetProfile = field(.widgetProfile)
+        widgetTs = field(.widgetTs)
+    }
 
     static func decode(_ data: Data) -> StatusFeed? {
         let d = JSONDecoder()
