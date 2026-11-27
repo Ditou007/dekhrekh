@@ -19,7 +19,7 @@
     <key>LSMinimumSystemVersion</key>
     <string>14.0</string>
     <key>NSAppleEventsUsageDescription</key>
-    <string>Dekhrekh switches Ghostty to the tab of the Claude session you click.</string>
+    <string>Dekhrekh switches your terminal or editor to the window of the Claude session you click.</string>
     <key>LSUIElement</key>
     <true/>
 </dict>
