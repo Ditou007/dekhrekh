@@ -52,44 +52,22 @@ if args.contains("-h") || args.contains("--help") {
 }
 let asJSON = args.contains("--json")
 
-if args.first == "setup" {
-    runSetup(dryRun: args.contains("--dry-run"))
-}
-if args.first == "feed" {
-    runFeed(args: Array(args))
-}
-if args.first == "config" {
-    runConfig()
-}
-if args.first == "handoff" {
-    runHandoff(args: Array(args))
-}
-if args.first == "move" {
-    runMove(args: Array(args))
-}
-if args.first == "tell" {
-    runTell(args: Array(args))
-}
-if args.first == "restore" {
-    runRestore(dryRun: args.contains("--dry-run"))
-}
-if args.first == "restart-check" {
-    runRestartCheck(json: asJSON)
-}
-if args.first == "snapshot" {
-    runSnapshot()
+switch args.first {
+case "setup": runSetup(dryRun: args.contains("--dry-run"))
+case "feed": runFeed(args: Array(args))
+case "config": runConfig()
+case "handoff": runHandoff(args: Array(args))
+case "move": runMove(args: Array(args))
+case "tell": runTell(args: Array(args))
+case "restore": runRestore(dryRun: args.contains("--dry-run"))
+case "restart-check": runRestartCheck(json: asJSON)
+case "snapshot": runSnapshot()
+case "claim": runClaim(args: Array(args))
+case "claims": runClaims(json: asJSON)
+case "show": runShow(query: args.dropFirst().filter { !$0.hasPrefix("-") }.joined(separator: " "), json: asJSON)
+default: break
 }
 
-if args.first == "claim" {
-    runClaim(args: Array(args))
-}
-if args.first == "claims" {
-    runClaims(json: asJSON)
-}
-
-if args.first == "show" {
-    runShow(query: args.dropFirst().filter { !$0.hasPrefix("-") }.joined(separator: " "), json: asJSON)
-}
 let picked = args.contains("--wait") ? ["ci"] : args.filter { !$0.hasPrefix("-") }.map { $0 == "home" ? "server" : $0 }
 if let bad = picked.first(where: { !allSections.contains($0) }) {
     FileHandle.standardError.write("unknown section: \(bad)\n\n\(usage)\n".data(using: .utf8)!)
@@ -98,12 +76,12 @@ if let bad = picked.first(where: { !allSections.contains($0) }) {
 let sections = picked.isEmpty ? allSections : Array(picked)
 
 if args.contains("--wait") {
-    runWait(args: Array(args))
+    await runWait(args: Array(args))
 }
 
 if args.contains("--stats") {
     let n = args.first { $0.hasPrefix("--runs=") }.flatMap { Int($0.dropFirst(7)) } ?? 15
-    runStats(limit: n, json: asJSON)
+    await runStats(limit: n, json: asJSON)
 }
 let now = Date()
 let iso = ISO8601DateFormatter()

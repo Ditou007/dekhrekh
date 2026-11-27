@@ -77,11 +77,16 @@ enum MemoryReader {
     private static func arguments(_ pid: pid_t) -> String? {
         var mib: [Int32] = [CTL_KERN, KERN_PROCARGS2, pid]
         var size = 0
-        guard sysctl(&mib, 3, nil, &size, nil, 0) == 0, size > 0 else { return nil }
+        guard sysctl(&mib, 3, nil, &size, nil, 0) == 0, size > MemoryLayout<Int32>.size else { return nil }
         var buf = [UInt8](repeating: 0, count: size)
         guard sysctl(&mib, 3, &buf, &size, nil, 0) == 0 else { return nil }
-        // Layout: argc (Int32), exec path, NUL padding, then argc NUL-terminated arguments.
-        return String(decoding: buf.prefix(size).dropFirst(4).map { $0 == 0 ? 32 : $0 }, as: UTF8.self)
+        // Layout: argc (Int32), exec path, NUL padding, argc NUL-terminated arguments, then the
+        // environment, which is left out so a PATH entry cannot match a role.
+        let argc = Int(buf.withUnsafeBytes { $0.load(as: Int32.self) })
+        let fields = buf.prefix(size).dropFirst(MemoryLayout<Int32>.size)
+            .split(separator: 0, omittingEmptySubsequences: true)
+        let argv = fields.dropFirst().prefix(argc)
+        return argv.map { String(decoding: $0, as: UTF8.self) }.joined(separator: " ")
     }
 
     private static func footprint(_ pid: pid_t) -> UInt64? {

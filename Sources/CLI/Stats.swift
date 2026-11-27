@@ -1,13 +1,7 @@
 import Foundation
 
-func runStats(limit: Int, json: Bool) -> Never {
-    let sem = DispatchSemaphore(value: 0)
-    var result: [RepoStats] = []
-    Task {
-        result = await CIClient().stats(runs: limit)
-        sem.signal()
-    }
-    sem.wait()
+func runStats(limit: Int, json: Bool) async -> Never {
+    let result = await CIClient().stats(runs: limit)
 
     if json {
         let out = result.map { r -> [String: Any] in
