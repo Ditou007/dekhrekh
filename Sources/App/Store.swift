@@ -12,8 +12,11 @@ final class Store: ObservableObject {
     @Published private(set) var sessions: [Session] = []
     @Published private(set) var waitReasons: [String: WaitReason] = [:]
     @Published private(set) var claims: [String: String] = [:]
-    /// Progress or result of a handoff started from the panel, per session.
+    /// Progress or result of a handoff or move started from the panel, per session.
     @Published private(set) var handoffStatus: [String: String] = [:]
+    /// Which operation last wrote each status note, so a stale clear-timer leaves a newer one alone.
+    private var statusOwner: [String: UUID] = [:]
+    private static let statusNoteSeconds: TimeInterval = 120
     /// Session-id prefixes (8 chars) that have already handed off; they get no second button.
     @Published private(set) var handedOff: Set<String> = []
     /// Idle sessions whose last reply ended with a question for the user.
@@ -83,7 +86,7 @@ final class Store: ObservableObject {
         watchNotifications()
         SessionSnapshots.rotateIfRebooted(bootTime: macState.bootTime)
         if memoryExpanded { refreshTopApps() }
-        refreshLocal()
+        refreshLocal(poll: true)
         refreshCI()
         refreshHomelab()
         refreshPRs()
@@ -95,7 +98,7 @@ final class Store: ObservableObject {
                 Task { @MainActor in self?.refreshHomelab() }
             },
             Timer.scheduledTimer(withTimeInterval: Config.sessionPollSeconds, repeats: true) { [weak self] _ in
-                Task { @MainActor in self?.refreshLocal() }
+                Task { @MainActor in self?.refreshLocal(poll: true) }
             },
             Timer.scheduledTimer(withTimeInterval: Config.ciPollSeconds, repeats: true) { [weak self] _ in
                 Task { @MainActor in self?.refreshCI() }
@@ -103,55 +106,67 @@ final class Store: ObservableObject {
         ]
     }
 
-    func refreshLocal() {
-        let statusline = SessionReader.readStatusline()
-        let fresh = SessionReader.readSessions(statusline: statusline)
+    private var localRefresh: Task<Void, Never>?
+    /// A refresh asked for while one was running; it runs once that one is done.
+    private var localRefreshQueued = false
+    /// Counts timer polls (not watcher-triggered refreshes) to space out the slower checks.
+    private var tick = 0
+    /// Reads sessions, transcripts, usage and memory off the main thread, then publishes the result.
+    /// `poll` is true for the timer's 2 s polls; refreshes triggered by the notify hook skip the slow checks.
+    func refreshLocal(poll: Bool = false) {
+        guard localRefresh == nil else { localRefreshQueued = true; return }
+        let tick = poll ? self.tick : -1
+        if poll { self.tick += 1 }
+        let input = LocalScan.Input(
+            tick: tick, samples: usageSamples, topApps: memoryExpanded
+        )
+        localRefresh = Task {
+            let scan = await Task.detached(priority: .userInitiated) { LocalScan.run(input) }.value
+            apply(scan)
+            localRefresh = nil
+            if localRefreshQueued {
+                localRefreshQueued = false
+                refreshLocal()
+            }
+        }
+    }
+
+    private func apply(_ scan: LocalScan) {
+        let fresh = scan.sessions
         let waiting = Set(fresh.filter { $0.status == .waiting }.map(\.id))
-        if !waiting.subtracting(knownWaiting).isEmpty { chime("Glass") }
+        if !waiting.subtracting(knownWaiting).isEmpty { chime(.newWaiting) }
         knownWaiting = waiting
 
         sessions = fresh
-        claims = fresh.reduce(into: [:]) { acc, s in acc[s.id] = Claims.read(for: s.id)?.note }
-        handedOff = Handoff.handedOff()
-        subagents = fresh.reduce(into: [:]) { acc, s in
-            let a = Subagents.running(for: s, statusline: statusline)
-            if !a.isEmpty { acc[s.id] = a }
-        }
+        claims = scan.claims
+        handedOff = scan.handedOff
+        subagents = scan.subagents
         restartCheck = RestartCheck(
             busy: fresh.filter { !$0.isBackground && ($0.status == .busy || $0.status == .shell) },
-            subagents: fresh.compactMap { s in subagents[s.id].map { (s, $0) } }
+            subagents: fresh.compactMap { s in scan.subagents[s.id].map { (s, $0) } }
         )
-        questions = fresh.reduce(into: [:]) { acc, s in acc[s.id] = Questions.pending(for: s, statusline: statusline) }
+        questions = scan.questions
         let asking = Set(questions.keys)
-        if !asking.subtracting(knownAsking).isEmpty { chime("Glass") }
+        if !asking.subtracting(knownAsking).isEmpty { chime(.newWaiting) }
         knownAsking = asking
-        waitReasons = fresh.filter { $0.status == .waiting }.reduce(into: [:]) { acc, s in
-            acc[s.id] = WaitReasons.reason(for: s, statusline: statusline)
-        }
-        usage = SessionReader.readUsage(statusline: statusline)
+        waitReasons = scan.waitReasons
+        usage = scan.usage
         let crossed = Set(usage.flatMap { u in
-            [("5h", u.fiveHour), ("7d", u.sevenDay)].flatMap { name, w -> [String] in
-                guard let w else { return [] }
+            UsageWindow.allCases.flatMap { window -> [String] in
+                guard let w = u[window] else { return [] }
                 return Self.limitChimeAt.filter { w.usedPercent >= $0 }
-                    .map { "\(u.profile.name) \(name) \(Int($0)) \(Int(w.resetsAt.timeIntervalSince1970))" }
+                    .map { "\(u.profile.name) \(window.rawValue) \(Int($0)) \(Int(w.resetsAt.timeIntervalSince1970))" }
             }
         })
-        if let before = crossedLimits, !crossed.subtracting(before).isEmpty { chime("Sosumi") }
+        if let before = crossedLimits, !crossed.subtracting(before).isEmpty { chime(.limitCrossed) }
         crossedLimits = (crossedLimits ?? []).union(crossed)
-        usageSamples = UsageHistory.record(usage, existing: usageSamples)
-        memory = MemoryReader.system()
+        usageSamples = scan.samples
+        memory = scan.memory
         now = Date()
-        if tick % Config.snapshotEveryTicks == 0 {
-            macState = MacState.read()
-            SessionSnapshots.save(fresh, statusline: statusline, bootTime: macState.bootTime,
-                                  branch: TranscriptReader.gitBranch)
-            restorable = SessionSnapshots.pendingRestore(live: fresh)
-        }
-        if tick % Config.processScanEveryTicks == 0 {
-            dockerVMBytes = MemoryReader.appBytes(named: Config.dockerVMName)
-        }
-        tick += 1
-        if memoryExpanded && tick % Config.topAppsEveryTicks == 0 { refreshTopApps() }
+        if let m = scan.macState { macState = m }
+        if let r = scan.restorable { restorable = r.value }
+        if let d = scan.dockerVMBytes { dockerVMBytes = d.value }
+        if let apps = scan.topApps, memoryExpanded { topApps = apps }
     }
 
     /// The Notification hook writes into this folder; refresh at once instead of on the next poll.
@@ -191,19 +206,17 @@ final class Store: ObservableObject {
     }
 
     func handoff(_ s: Session) {
-        handoffStatus[s.id] = "Handing off: asking the session to write its handoff..."
+        let op = beginStatus(s, "Handing off: asking the session to write its handoff...")
         let statusline = SessionReader.readStatusline()
         DispatchQueue.global(qos: .userInitiated).async {
             let result = Handoff.run(s, statusline: statusline, force: false) { line in
-                DispatchQueue.main.async { self.handoffStatus[s.id] = "Handing off: " + line }
+                DispatchQueue.main.async { self.setStatus(s, op, "Handing off: " + line) }
             }
             DispatchQueue.main.async {
                 switch result {
-                case .success: self.handoffStatus[s.id] = "Handed off: the new session is open in Ghostty."
-                case .failure(let why): self.handoffStatus[s.id] = "Handoff not done: \(why)"
+                case .success: self.finishStatus(s, op, "Handed off: the new session is open in Ghostty.")
+                case .failure(let why): self.finishStatus(s, op, "Handoff not done: \(why)")
                 }
-                // Clear the note after a while so the row returns to normal.
-                DispatchQueue.main.asyncAfter(deadline: .now() + 120) { self.handoffStatus[s.id] = nil }
             }
         }
     }
@@ -212,43 +225,73 @@ final class Store: ObservableObject {
     func moveTarget(_ s: Session) -> Profile? { Move.offer(for: s, usage: usage) }
 
     func move(_ s: Session, to target: Profile) {
-        handoffStatus[s.id] = "Moving to \(target.title)..."
+        let op = beginStatus(s, "Moving to \(target.title)...")
         let statusline = SessionReader.readStatusline()
         let usage = self.usage
         DispatchQueue.global(qos: .userInitiated).async {
             let result = Move.run(s, to: target, statusline: statusline, usage: usage, force: false) { line in
-                DispatchQueue.main.async { self.handoffStatus[s.id] = "Moving: " + line }
+                DispatchQueue.main.async { self.setStatus(s, op, "Moving: " + line) }
             }
             DispatchQueue.main.async {
                 switch result {
-                case .success(let p): self.handoffStatus[s.id] = "Continues on \(p.title) in a new Ghostty tab."
-                case .failure(let why): self.handoffStatus[s.id] = "Not moved: \(why)"
+                case .success(let p): self.finishStatus(s, op, "Continues on \(p.title) in a new Ghostty tab.")
+                case .failure(let why): self.finishStatus(s, op, "Not moved: \(why)")
                 }
-                DispatchQueue.main.asyncAfter(deadline: .now() + 120) { self.handoffStatus[s.id] = nil }
             }
         }
     }
 
-    func refreshPRs() {
-        Task {
-            let result = await client.fetchPRs()
-            prs = result.prs
-            prErrors = result.errors
+    private func beginStatus(_ s: Session, _ note: String) -> UUID {
+        let op = UUID()
+        statusOwner[s.id] = op
+        handoffStatus[s.id] = note
+        return op
+    }
+
+    private func setStatus(_ s: Session, _ op: UUID, _ note: String) {
+        guard statusOwner[s.id] == op else { return }
+        handoffStatus[s.id] = note
+    }
+
+    /// Shows the result, then clears it after a while so the row returns to normal, unless another
+    /// operation on the same session has started since.
+    private func finishStatus(_ s: Session, _ op: UUID, _ note: String) {
+        setStatus(s, op, note)
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.statusNoteSeconds) {
+            guard self.statusOwner[s.id] == op else { return }
+            self.handoffStatus[s.id] = nil
+            self.statusOwner[s.id] = nil
         }
     }
 
-    func limitETA(_ u: AccountUsage, window name: String, _ w: RateWindow?) -> Date? {
-        guard let w, w.resetsAt > now else { return nil }
-        return UsageHistory.limitETA(profile: u.profile, window: name, current: w, samples: usageSamples, now: now)
+    private var prFetch: Task<Void, Never>?
+    private var ciFetch: Task<Void, Never>?
+
+    /// Skipped while a fetch is still running, so a slow network cannot stack polls or let an
+    /// older result land after a newer one.
+    func refreshPRs() {
+        guard prFetch == nil else { return }
+        prFetch = Task {
+            let result = await client.fetchPRs()
+            prs = result.prs
+            prErrors = result.errors
+            prFetch = nil
+        }
+    }
+
+    func limitETA(_ u: AccountUsage, _ window: UsageWindow) -> Date? {
+        guard let w = u[window], w.resetsAt > now else { return nil }
+        return UsageHistory.limitETA(profile: u.profile, window: window, current: w, samples: usageSamples, now: now)
     }
 
     var swapHot: Bool { (memory?.swapUsedBytes ?? 0) >= Config.swapWarnBytes }
     var prsNeedingYou: Int { prs.filter { $0.state.needsYou }.count }
 
-    private var tick = 0
-
     func refreshTopApps() {
-        topApps = MemoryReader.topApps(limit: Config.topAppsLimit)
+        Task {
+            let apps = await Task.detached(priority: .userInitiated) { MemoryReader.topApps(limit: Config.topAppsLimit) }.value
+            if memoryExpanded { topApps = apps }
+        }
     }
 
     var memoryHot: Bool {
@@ -257,10 +300,12 @@ final class Store: ObservableObject {
     }
 
     func refreshCI() {
-        Task {
+        guard ciFetch == nil else { return }
+        ciFetch = Task {
+            defer { ciFetch = nil }
             let results = await client.fetchAll()
             let ids = Set(results.flatMap { $0.failures.filter { !$0.scheduled }.map(\.id) })
-            if ciPrimed && !ids.subtracting(knownFailures).isEmpty { chime("Basso") }
+            if ciPrimed && !ids.subtracting(knownFailures).isEmpty { chime(.ciFailed) }
             knownFailures = ids
             ciPrimed = true
             ci = results
@@ -306,19 +351,25 @@ final class Store: ObservableObject {
     var attention: Attention {
         if failureCount > 0 || waitingCount > 0 || askingCount > 0 { return .alert }
         let usageHot = usage.contains { u in
-            [u.fiveHour, u.sevenDay].compactMap { $0 }.contains {
+            UsageWindow.allCases.compactMap { u[$0] }.contains {
                 $0.resetsAt > now && $0.usedPercent >= Config.usageWarnUsed
             }
         }
         let limitSoon = usage.contains { u in
-            limitETA(u, window: "5h", u.fiveHour) != nil || limitETA(u, window: "7d", u.sevenDay) != nil
+            UsageWindow.allCases.contains { limitETA(u, $0) != nil }
         }
         let warn = nightlyFailureCount > 0 || lowContextCount > 0 || usageHot || limitSoon || memoryHot || swapHot || homelabHot
         return warn ? .warn : .calm
     }
 
-    private func chime(_ name: String) {
+    enum Chime: String {
+        case newWaiting = "Glass"
+        case limitCrossed = "Sosumi"
+        case ciFailed = "Basso"
+    }
+
+    private func chime(_ c: Chime) {
         guard soundOn else { return }
-        NSSound(named: NSSound.Name(name))?.play()
+        NSSound(named: NSSound.Name(c.rawValue))?.play()
     }
 }

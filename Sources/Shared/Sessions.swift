@@ -76,6 +76,12 @@ struct RateWindow {
     let resetsAt: Date
 }
 
+/// Claude's two rate-limit windows. The raw value is the label shown and stored in usage history.
+enum UsageWindow: String, CaseIterable {
+    case fiveHour = "5h"
+    case sevenDay = "7d"
+}
+
 struct AccountUsage {
     let profile: Profile
     let fiveHour: RateWindow?
@@ -84,6 +90,13 @@ struct AccountUsage {
     /// Sum of `cost.total_cost_usd` over sessions active today. Each is that session's running total
     /// since it started (possibly days ago), at list price: an estimate, not a bill.
     let costToday: Double
+
+    subscript(window: UsageWindow) -> RateWindow? {
+        switch window {
+        case .fiveHour: return fiveHour
+        case .sevenDay: return sevenDay
+        }
+    }
 }
 
 enum SessionReader {

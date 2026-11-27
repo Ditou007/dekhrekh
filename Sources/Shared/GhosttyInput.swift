@@ -8,27 +8,9 @@ enum GhosttyInput {
     static func type(_ text: String, into s: Session) -> Outcome {
         let script = """
         tell application "Ghostty"
-          set target to missing value
-          repeat with w in windows
-            repeat with t in tabs of w
-              repeat with term in terminals of t
-                if target is missing value and name of term contains "\(escape(s.name))" then set target to term
-              end repeat
-            end repeat
-          end repeat
-          if target is missing value then
-            set hits to {}
-            repeat with w in windows
-              repeat with t in tabs of w
-                repeat with term in terminals of t
-                  if working directory of term is "\(escape(s.cwd))" then set end of hits to term
-                end repeat
-              end repeat
-            end repeat
-            if (count of hits) is 1 then set target to item 1 of hits
-          end if
+        \(findTerminal(s))
           if target is missing value then return "none"
-          input text "\(escape(text))" to target
+          input text "\(appleScriptString(text))" to target
           send key "enter" to target
           return "typed"
         end tell
@@ -39,7 +21,36 @@ enum GhosttyInput {
         return result?.stringValue == "typed" ? .typed : .notFound
     }
 
-    private static func escape(_ s: String) -> String {
-        s.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
+    /// AppleScript, run inside `tell application "Ghostty"`, that sets `target` to the session's
+    /// terminal, or to missing value. Titles are matched by substring, so `web` also matches
+    /// `web-admin`: several title hits are narrowed by folder, and anything still ambiguous is
+    /// left unmatched rather than guessed, since the caller may type into it.
+    static func findTerminal(_ s: Session) -> String {
+        let name = appleScriptString(s.name)
+        let cwd = appleScriptString(s.cwd)
+        return """
+          set byName to {}
+          set byFolder to {}
+          repeat with w in windows
+            repeat with t in tabs of w
+              repeat with term in terminals of t
+                if "\(name)" is not "" and name of term contains "\(name)" then set end of byName to term
+                if working directory of term is "\(cwd)" then set end of byFolder to term
+              end repeat
+            end repeat
+          end repeat
+          set target to missing value
+          if (count of byName) is 1 then
+            set target to item 1 of byName
+          else if (count of byName) > 1 then
+            set both to {}
+            repeat with term in byName
+              if working directory of term is "\(cwd)" then set end of both to term
+            end repeat
+            if (count of both) is 1 then set target to item 1 of both
+          else if (count of byFolder) is 1 then
+            set target to item 1 of byFolder
+          end if
+        """
     }
 }

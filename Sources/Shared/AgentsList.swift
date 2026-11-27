@@ -4,7 +4,9 @@ import Foundation
 /// run by its supervisor, which have no session file of their own. Nil when the command is missing
 /// or fails (older Claude Code), so callers fall back to the session files.
 enum AgentsList {
-    private static let cacheSeconds: TimeInterval = 3
+    /// Longer than the panel's 2 s poll, so one run serves two polls.
+    private static let cacheSeconds: TimeInterval = 5
+    private static let timeout: TimeInterval = 5
     private static var cache: [String: (at: Date, rows: [[String: Any]]?)] = [:]
     private static let lock = NSLock()
 
@@ -28,21 +30,14 @@ enum AgentsList {
 
     private static func run(_ profile: Profile) -> [[String: Any]]? {
         guard let claude = claudePath else { return nil }
-        let proc = Process()
-        proc.executableURL = URL(fileURLWithPath: claude)
-        proc.arguments = ["agents", "--json"]
         var env = ProcessInfo.processInfo.environment
         let defaultDir = Config.home.appendingPathComponent(".claude").resolvingSymlinksInPath().path
         if profile.claudeDir.resolvingSymlinksInPath().path != defaultDir { env["CLAUDE_CONFIG_DIR"] = profile.claudeDir.path }
-        proc.environment = env
-        proc.currentDirectoryURL = URL(fileURLWithPath: NSTemporaryDirectory())
-        let out = Pipe()
-        proc.standardOutput = out
-        proc.standardError = Pipe()
-        guard (try? proc.run()) != nil else { return nil }
-        let data = out.fileHandleForReading.readDataToEndOfFile()
-        proc.waitUntilExit()
-        guard proc.terminationStatus == 0 else { return nil }
+        guard let r = Shell.run(claude, ["agents", "--json"], timeout: timeout,
+                                cwd: URL(fileURLWithPath: NSTemporaryDirectory()), environment: env),
+              r.ok
+        else { return nil }
+        let data = r.stdout
         return (try? JSONSerialization.jsonObject(with: data)) as? [[String: Any]]
     }
 

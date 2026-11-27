@@ -18,7 +18,6 @@ struct SessionContext {
     let actions: [ToolAction]
     /// The last tool call with no result yet: what a waiting session is blocked on.
     let pending: ToolAction?
-    let branch: String?
     let transcriptPath: String?
 }
 
@@ -104,7 +103,6 @@ enum TranscriptReader {
             replies: Array(replies.suffix(replyLimit)),
             actions: Array(actions.suffix(actionLimit)),
             pending: openCalls.last { !resolved.contains($0.id) }?.action,
-            branch: gitBranch(s.cwd),
             transcriptPath: url?.path
         )
     }
@@ -153,20 +151,6 @@ enum TranscriptReader {
         return lines.map(String.init)
     }
 
-    static func gitBranch(_ cwd: String) -> String? {
-        guard !cwd.isEmpty else { return nil }
-        let p = Process()
-        p.executableURL = URL(fileURLWithPath: "/usr/bin/git")
-        p.arguments = ["--no-optional-locks", "-C", cwd, "branch", "--show-current"]
-        let out = Pipe()
-        p.standardOutput = out
-        p.standardError = Pipe()
-        guard (try? p.run()) != nil else { return nil }
-        p.waitUntilExit()
-        let b = String(decoding: out.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        return p.terminationStatus == 0 && !b.isEmpty ? b : nil
-    }
 }
 
 func oneLine(_ s: String, max: Int) -> String {

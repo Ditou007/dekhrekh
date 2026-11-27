@@ -17,7 +17,7 @@ struct SavedSession: Codable {
     let background: Bool?
     let runningSubagents: [RunningSubagent]?
 
-    var resumeCommand: String { "\(Config.profile(named: profile)?.launch ?? "claude") --resume \(sessionId)" }
+    var resumeCommand: String { "\(Config.profile(named: profile)?.launch ?? "claude") --resume \(Shell.quote(sessionId))" }
 }
 
 struct SessionSnapshot: Codable {
@@ -100,8 +100,8 @@ enum SessionSnapshots {
             let cmd = s.resumeCommand
             return """
               set cfg to new surface configuration
-              set initial working directory of cfg to "\(escape(s.cwd))"
-              set initial input of cfg to "\(escape(cmd))" & return
+              set initial working directory of cfg to "\(appleScriptString(s.cwd))"
+              set initial input of cfg to "\(appleScriptString(cmd))" & return
               if w is missing value then
                 set w to new window with configuration cfg
               else
@@ -121,7 +121,4 @@ enum SessionSnapshots {
         return error.map { ($0[NSAppleScript.errorMessage] as? String) ?? "\($0)" }
     }
 
-    private static func escape(_ s: String) -> String {
-        s.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
-    }
 }

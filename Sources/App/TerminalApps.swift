@@ -105,15 +105,7 @@ enum TerminalApps {
 
     private static func tmux(_ args: [String]) -> String? {
         guard let path = tmuxPaths.first(where: FileManager.default.isExecutableFile(atPath:)) else { return nil }
-        let p = Process()
-        p.executableURL = URL(fileURLWithPath: path)
-        p.arguments = args
-        let out = Pipe()
-        p.standardOutput = out
-        p.standardError = FileHandle.nullDevice
-        guard (try? p.run()) != nil else { return nil }
-        let data = out.fileHandleForReading.readDataToEndOfFile()
-        p.waitUntilExit()
-        return p.terminationStatus == 0 ? String(decoding: data, as: UTF8.self) : nil
+        guard let r = Shell.run(path, args, timeout: 3), r.ok else { return nil }
+        return String(decoding: r.stdout, as: UTF8.self)
     }
 }

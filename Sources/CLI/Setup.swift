@@ -78,7 +78,7 @@ func runSetup(dryRun: Bool) -> Never {
         if let current, current.contains("feed statusline") {
             // already connected
         } else if let current, !current.isEmpty {
-            settings["statusLine"] = (status ?? [:]).merging(["type": "command", "command": "\(cli) feed statusline --then \(shellQuote(current))"]) { $1 }
+            settings["statusLine"] = (status ?? [:]).merging(["type": "command", "command": "\(cli) feed statusline --then \(Shell.quote(current))"]) { $1 }
             changes.append("status line: your command now runs through \(Config.cli) (same output)")
         } else {
             settings["statusLine"] = ["type": "command", "command": "\(cli) feed statusline"]
@@ -150,5 +150,3 @@ private func installedCLIPath() -> String {
     let dirs = (ProcessInfo.processInfo.environment["PATH"] ?? "").split(separator: ":").map(String.init)
     return dirs.map { "\($0)/\(arg0)" }.first { FileManager.default.isExecutableFile(atPath: $0) } ?? arg0
 }
-
-private func shellQuote(_ s: String) -> String { "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'" }

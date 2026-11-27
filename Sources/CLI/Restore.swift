@@ -4,7 +4,7 @@ func runSnapshot() -> Never {
     let statusline = SessionReader.readStatusline()
     let sessions = SessionReader.readSessions(statusline: statusline)
     SessionSnapshots.save(sessions, statusline: statusline, bootTime: MacState.read().bootTime,
-                          branch: TranscriptReader.gitBranch)
+                          branch: { Git.branch(at: $0) })
     let n = SessionSnapshots.load(SessionSnapshots.current)?.sessions.count ?? 0
     print("saved \(n) open session(s) to \(SessionSnapshots.current.path)")
     exit(0)

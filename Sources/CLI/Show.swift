@@ -26,6 +26,7 @@ func runShow(query: String, json: Bool) -> Never {
     }
 
     let ctx = TranscriptReader.context(for: s, statusline: statusline)
+    let branch = Git.branch(at: s.cwd)
     let now = Date()
     let iso = ISO8601DateFormatter()
 
@@ -34,7 +35,7 @@ func runShow(query: String, json: Bool) -> Never {
             "name": s.name, "title": ctx.title ?? NSNull(), "session_id": s.id, "pid": s.pid,
             "profile": s.profile.rawValue, "status": s.status.rawValue,
             "status_since": iso.string(from: s.statusSince),
-            "cwd": s.cwd, "branch": ctx.branch ?? NSNull(),
+            "cwd": s.cwd, "branch": branch ?? NSNull(),
             "context_remaining_pct": s.ctxRemaining ?? NSNull(),
             "transcript": ctx.transcriptPath ?? NSNull(),
             "recent_prompts": ctx.prompts.map { p -> [String: Any] in
@@ -51,7 +52,7 @@ func runShow(query: String, json: Bool) -> Never {
     let rule = String(repeating: "─", count: 60)
     Frame.open()
     print("\(s.name)  [\(s.profile.tag), \(s.status.rawValue) for \(ago(s.statusSince, now: now))]")
-    print("  folder   \(s.cwd)\(ctx.branch.map { "  (branch \($0))" } ?? "")")
+    print("  folder   \(s.cwd)\(branch.map { "  (branch \($0))" } ?? "")")
     print("  session  \(s.id)  pid \(s.pid)  ctx left \(s.ctxRemaining.map { "\(Int($0))%" } ?? "-")")
     if let peer = s.peerName {
         if Config.messageable(s) {

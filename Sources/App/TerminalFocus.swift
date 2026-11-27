@@ -36,34 +36,13 @@ enum TerminalFocus {
     }
 
     private static func focusGhostty(_ s: Session) -> Bool {
-        let name = escape(s.name)
-        let cwd = escape(s.cwd)
-        return run("""
+        run("""
         tell application "Ghostty"
           activate
-          repeat with w in windows
-            repeat with t in tabs of w
-              repeat with term in terminals of t
-                if name of term contains "\(name)" then
-                  focus term
-                  return "name"
-                end if
-              end repeat
-            end repeat
-          end repeat
-          set hits to {}
-          repeat with w in windows
-            repeat with t in tabs of w
-              repeat with term in terminals of t
-                if working directory of term is "\(cwd)" then set end of hits to term
-              end repeat
-            end repeat
-          end repeat
-          if (count of hits) is 1 then
-            focus (item 1 of hits)
-            return "folder"
-          end if
-          return "\(noMatch)"
+        \(GhosttyInput.findTerminal(s))
+          if target is missing value then return "\(noMatch)"
+          focus target
+          return "found"
         end tell
         """)
     }
@@ -74,7 +53,7 @@ enum TerminalFocus {
           repeat with w in windows
             repeat with t in tabs of w
               repeat with s in sessions of t
-                if tty of s is "\(escape(tty))" then
+                if tty of s is "\(appleScriptString(tty))" then
                   select w
                   select t
                   select s
@@ -94,7 +73,7 @@ enum TerminalFocus {
         tell application id "\(TerminalApps.appleTerminal)"
           repeat with w in windows
             repeat with t in tabs of w
-              if tty of t is "\(escape(tty))" then
+              if tty of t is "\(appleScriptString(tty))" then
                 set selected of t to true
                 set index of w to 1
                 set frontmost of w to true
@@ -127,7 +106,4 @@ enum TerminalFocus {
         return error == nil && result?.stringValue != noMatch
     }
 
-    private static func escape(_ s: String) -> String {
-        s.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
-    }
 }

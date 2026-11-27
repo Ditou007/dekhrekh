@@ -32,7 +32,7 @@ enum Move {
     /// How much of the tighter limit is used, if that window has not reset yet. No data counts as 0.
     static func used(_ p: Profile, _ usage: [AccountUsage], now: Date = Date()) -> Double {
         guard let u = usage.first(where: { $0.profile == p }) else { return 0 }
-        return [u.fiveHour, u.sevenDay].compactMap { $0 }.filter { $0.resetsAt > now }.map(\.usedPercent).max() ?? 0
+        return UsageWindow.allCases.compactMap { u[$0] }.filter { $0.resetsAt > now }.map(\.usedPercent).max() ?? 0
     }
 
     /// Whether this account's limits have been seen. An account that is already out never reports
@@ -58,9 +58,9 @@ enum Move {
 
     static func command(for s: Session, to target: Profile, statusline: [String: [String: Any]]) -> String {
         let l = Handoff.launch(for: s, statusline: statusline)
-        var cmd = target.launch + " --resume \(s.id)"
-        if let m = l.model { cmd += " --model \(m)" }
-        if let e = l.effort { cmd += " --effort \(e)" }
+        var cmd = target.launch + " --resume \(Shell.quote(s.id))"
+        if let m = l.model { cmd += " --model \(Shell.quote(m))" }
+        if let e = l.effort { cmd += " --effort \(Shell.quote(e))" }
         return cmd
     }
 
