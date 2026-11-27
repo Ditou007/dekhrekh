@@ -95,7 +95,7 @@ final class CIClient: @unchecked Sendable {
         return Set(heads).union(repo.branches).union([main])
     }
 
-    private func summarise(repo: RepoWatch, runs: [[String: Any]], live: Set<String>?) -> RepoCI {
+    func summarise(repo: RepoWatch, runs: [[String: Any]], live: Set<String>?) -> RepoCI {
         let relevant = runs.filter { run in
             guard !(repo.actors.isEmpty && repo.branches.isEmpty) else { return true }
             let actor = (run["actor"] as? [String: Any])?["login"] as? String ?? ""

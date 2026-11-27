@@ -111,7 +111,7 @@ enum TranscriptReader {
     /// system reminders) and messages relayed from other sessions arrive as user messages too.
     private static let relayedPrefixes = ["<", "Another Claude session sent a message"]
 
-    private static func isHumanPrompt(_ text: String) -> Bool {
+    static func isHumanPrompt(_ text: String) -> Bool {
         let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
         // A message that is only a paste starts with the paste tag, but the user did send it.
         if t.hasPrefix("<pasted_content") { return true }

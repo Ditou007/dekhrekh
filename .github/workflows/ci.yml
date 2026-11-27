@@ -1,0 +1,19 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build-and-test:
+    # The private source repo mirrors this one; macOS minutes are only spent on the public copy.
+    if: github.repository == 'Ditou007/dekhrekh'
+    runs-on: macos-15
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build app and CLI
+        run: DEKHREKH_SIGN_ID=- ./build.sh
+      - name: Unit checks
+        run: ./test.sh
