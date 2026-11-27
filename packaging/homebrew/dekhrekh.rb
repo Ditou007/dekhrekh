@@ -11,7 +11,8 @@ class Dekhrekh < Formula
 
   def install
     # Ad-hoc signing: Homebrew's build environment cannot reach the keychain's certificates.
-    system({ "DEKHREKH_SIGN_ID" => "-" }, "./build.sh")
+    ENV["DEKHREKH_SIGN_ID"] = "-"
+    system "./build.sh"
     prefix.install "build/Dekhrekh.app"
     bin.install "build/dekhrekh"
   end
