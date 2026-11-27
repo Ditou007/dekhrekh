@@ -39,7 +39,7 @@ enum TerminalFocus {
         run("""
         tell application "Ghostty"
           activate
-        \(GhosttyInput.findTerminal(s))
+        \(GhosttyInput.findTerminal(s, firstIfAmbiguous: true))
           if target is missing value then return "\(noMatch)"
           focus target
           return "found"

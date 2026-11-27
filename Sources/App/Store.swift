@@ -107,14 +107,21 @@ final class Store: ObservableObject {
     }
 
     private var localRefresh: Task<Void, Never>?
-    /// A refresh asked for while one was running; it runs once that one is done.
-    private var localRefreshQueued = false
+    /// A refresh asked for while one was running; it runs once that one is done, as a poll if any
+    /// of the requests was one, so slow scans cannot stall the every-N-polls checks.
+    private var localRefreshQueued: (poll: Bool, any: Bool) = (false, false)
+    /// Bumped when the restore banner is acted on, so a scan started before that cannot bring it back.
+    private var restoreEpoch = 0
     /// Counts timer polls (not watcher-triggered refreshes) to space out the slower checks.
     private var tick = 0
     /// Reads sessions, transcripts, usage and memory off the main thread, then publishes the result.
     /// `poll` is true for the timer's 2 s polls; refreshes triggered by the notify hook skip the slow checks.
     func refreshLocal(poll: Bool = false) {
-        guard localRefresh == nil else { localRefreshQueued = true; return }
+        guard localRefresh == nil else {
+            localRefreshQueued = (localRefreshQueued.poll || poll, true)
+            return
+        }
+        let epoch = restoreEpoch
         let tick = poll ? self.tick : -1
         if poll { self.tick += 1 }
         let input = LocalScan.Input(
@@ -122,16 +129,15 @@ final class Store: ObservableObject {
         )
         localRefresh = Task {
             let scan = await Task.detached(priority: .userInitiated) { LocalScan.run(input) }.value
-            apply(scan)
+            apply(scan, restoreCurrent: epoch == restoreEpoch)
             localRefresh = nil
-            if localRefreshQueued {
-                localRefreshQueued = false
-                refreshLocal()
-            }
+            let queued = localRefreshQueued
+            localRefreshQueued = (false, false)
+            if queued.any { refreshLocal(poll: queued.poll) }
         }
     }
 
-    private func apply(_ scan: LocalScan) {
+    private func apply(_ scan: LocalScan, restoreCurrent: Bool) {
         let fresh = scan.sessions
         let waiting = Set(fresh.filter { $0.status == .waiting }.map(\.id))
         if !waiting.subtracting(knownWaiting).isEmpty { chime(.newWaiting) }
@@ -161,7 +167,7 @@ final class Store: ObservableObject {
         memory = scan.memory
         now = Date()
         if let m = scan.macState { macState = m }
-        if let r = scan.restorable { restorable = r.value }
+        if let r = scan.restorable, restoreCurrent { restorable = r.value }
         if let d = scan.dockerVMBytes { dockerVMBytes = d.value }
         if let apps = scan.topApps, memoryExpanded { topApps = apps }
     }
@@ -191,6 +197,7 @@ final class Store: ObservableObject {
                 self.restoreError = err
                 if err == nil {
                     SessionSnapshots.markRestored()
+                    self.restoreEpoch += 1
                     self.restorable = nil
                 }
             }
@@ -199,6 +206,7 @@ final class Store: ObservableObject {
 
     func dismissRestore() {
         SessionSnapshots.markRestored()
+        restoreEpoch += 1
         restorable = nil
     }
 
