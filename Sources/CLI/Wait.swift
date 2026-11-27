@@ -2,7 +2,7 @@ import Foundation
 
 /// `dekhrekh ci --wait [branch] [--repo=<label>] [--timeout=<minutes>] [--log-lines=<n>]`
 /// Exit 0 when every run on the branch's newest commit passed, 1 on a failure, 3 on timeout.
-func runWait(args: [String]) -> Never {
+func runWait(args: [String]) async -> Never {
     func option(_ name: String) -> String? {
         args.first { $0.hasPrefix("--\(name)=") }.map { String($0.dropFirst(name.count + 3)) }
     }
@@ -21,25 +21,19 @@ func runWait(args: [String]) -> Never {
     let minutes = option("timeout").flatMap(Double.init) ?? 30
     let logLines = option("log-lines").flatMap(Int.init) ?? 40
 
-    let sem = DispatchSemaphore(value: 0)
-    var result: Result<WaitResult, Error>!
-    Task {
-        do {
-            let r = try await CIClient().waitForBranch(repo: repo, branch: branch, timeout: minutes * 60,
-                                                       logLines: logLines) { line in
-                print("… \(line)")
-                fflush(stdout)
-            }
-            result = .success(r)
-        } catch {
-            result = .failure(error)
-        }
-        sem.signal()
+    let result: Result<WaitResult, Error>
+    do {
+        result = .success(try await CIClient().waitForBranch(repo: repo, branch: branch, timeout: minutes * 60,
+                                                             logLines: logLines) { line in
+            print("… \(line)")
+            fflush(stdout)
+        })
+    } catch {
+        result = .failure(error)
     }
-    sem.wait()
 
     Frame.open()
-    switch result! {
+    switch result {
     case .failure(let e):
         print("dekhrekh ci --wait: \(e.localizedDescription)")
         Frame.close()
