@@ -323,11 +323,11 @@ final class Store: ObservableObject {
     }
 
     var homelabHot: Bool {
-        guard Config.server != nil else { return false }
+        guard let card = Config.server else { return false }
         guard let h = homelab else { return homelabError != nil }
         return h.memPct >= Config.memoryWarnUsed
-            || h.loadPct >= 100
-            || (h.tempC ?? 0) >= (Config.server?.tempBadC ?? 90)
+            || h.loadPct >= PanelThresholds.loadMax
+            || (h.tempC ?? 0) >= card.tempBadC
             || !h.guestsDown.isEmpty
     }
 
