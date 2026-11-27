@@ -37,10 +37,8 @@ enum Handoff {
     }
 
     /// The model and effort the session runs with, from its statusline feed.
-    static func launch(for s: Session, statusline: [String: [String: Any]]) -> Launch {
-        let payload = statusline[s.id]
-        return Launch(model: (payload?["model"] as? [String: Any])?["id"] as? String,
-                      effort: (payload?["effort"] as? [String: Any])?["level"] as? String)
+    static func launch(for s: Session, statusline: StatusFeeds) -> Launch {
+        Launch(model: statusline[s.id]?.model?.id, effort: statusline[s.id]?.effort?.level)
     }
 
     static func request(path: String, newName: String, subagents: [String]) -> String {
@@ -60,7 +58,7 @@ enum Handoff {
     }
 
     /// Runs the whole handoff, blocking. `progress` gets a line per stage.
-    static func run(_ s: Session, statusline: [String: [String: Any]], force: Bool,
+    static func run(_ s: Session, statusline: StatusFeeds, force: Bool,
                     progress: (String) -> Void) -> Result<String, Refusal> {
         if s.status == .waiting {
             return .failure(.waiting(WaitReasons.reason(for: s, statusline: statusline).summary))

@@ -65,7 +65,7 @@ enum WaitReasons {
         return obj["message"] as? String
     }
 
-    static func reason(for s: Session, statusline: [String: [String: Any]]) -> WaitReason {
+    static func reason(for s: Session, statusline: StatusFeeds) -> WaitReason {
         let ctx = TranscriptReader.context(for: s, statusline: statusline, prompts: 0, replies: 0, actions: 0)
         return WaitReason(message: hookMessage(for: s), pending: ctx.pending)
     }
@@ -100,23 +100,20 @@ struct AccountUsage {
 }
 
 enum SessionReader {
-    static func readStatusline() -> [String: [String: Any]] {
+    static func readStatusline() -> StatusFeeds {
         let fm = FileManager.default
         guard let files = try? fm.contentsOfDirectory(at: Config.statuslineDir, includingPropertiesForKeys: nil) else {
             return [:]
         }
         return files
             .filter { $0.pathExtension == "json" }
-            .reduce(into: [String: [String: Any]]()) { acc, url in
-                guard let data = try? Data(contentsOf: url),
-                      let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
-                      let sid = obj["session_id"] as? String
-                else { return }
-                acc[sid] = obj
+            .reduce(into: StatusFeeds()) { acc, url in
+                guard let data = try? Data(contentsOf: url), let feed = StatusFeed.decode(data) else { return }
+                acc[feed.sessionId] = feed
             }
     }
 
-    static func readSessions(statusline: [String: [String: Any]], includeStale: Bool = false) -> [Session] {
+    static func readSessions(statusline: StatusFeeds, includeStale: Bool = false) -> [Session] {
         let now = Date()
         let all = Config.sessionDirs.flatMap { profile, dir -> [Session] in
             let files = (try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? []
@@ -129,14 +126,13 @@ enum SessionReader {
             let supervised = rows.compactMap { row -> Session? in
                 guard row["pid"] == nil, let sid = row["sessionId"] as? String, !known.contains(sid) else { return nil }
                 let cwd = row["cwd"] as? String ?? ""
-                let ctx = (statusline[sid]?["context_window"] as? [String: Any])?["remaining_percentage"] as? NSNumber
                 return Session(
                     id: sid, pid: 0,
                     name: row["name"] as? String ?? (cwd as NSString).lastPathComponent,
                     peerName: nil, cwd: cwd, profile: profile,
                     status: AgentsList.status(row), isBackground: true,
                     statusSince: Date(timeIntervalSince1970: ((row["startedAt"] as? NSNumber)?.doubleValue ?? 0) / 1000),
-                    ctxRemaining: ctx?.doubleValue
+                    ctxRemaining: statusline[sid]?.contextWindow?.remainingPercentage
                 )
             }
             return fromFiles + supervised
@@ -155,7 +151,7 @@ enum SessionReader {
         }
     }
 
-    private static func parseSession(url: URL, profile: Profile, statusline: [String: [String: Any]]) -> Session? {
+    private static func parseSession(url: URL, profile: Profile, statusline: StatusFeeds) -> Session? {
         guard let data = try? Data(contentsOf: url),
               let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
               let pid = (obj["pid"] as? NSNumber)?.int32Value,
@@ -163,9 +159,8 @@ enum SessionReader {
         else { return nil }
 
         let sid = obj["sessionId"] as? String ?? url.lastPathComponent
-        let ctx = (statusline[sid]?["context_window"] as? [String: Any])?["remaining_percentage"] as? NSNumber
         let sinceMs = (obj["statusUpdatedAt"] as? NSNumber ?? obj["updatedAt"] as? NSNumber)?.doubleValue ?? 0
-        let statuslineName = statusline[sid]?["session_name"] as? String
+        let statuslineName = statusline[sid]?.sessionName
         let cwd = obj["cwd"] as? String ?? ""
 
         return Session(
@@ -178,46 +173,33 @@ enum SessionReader {
             status: SessionStatus(rawValue: obj["status"] as? String ?? "") ?? .unknown,
             isBackground: (obj["kind"] as? String) == "bg",
             statusSince: Date(timeIntervalSince1970: sinceMs / 1000),
-            ctxRemaining: ctx?.doubleValue
+            ctxRemaining: statusline[sid]?.contextWindow?.remainingPercentage
         )
     }
 
     /// Latest rate-limit snapshot per profile, taken from the freshest statusline write.
-    static func readUsage(statusline: [String: [String: Any]]) -> [AccountUsage] {
-        let latest = statusline.values.reduce(into: [Profile: [String: Any]]()) { acc, obj in
-            guard let p = Config.profile(named: obj["widget_profile"] as? String ?? ""),
-                  obj["rate_limits"] is [String: Any]
-            else { return }
-            let ts = (obj["widget_ts"] as? NSNumber)?.doubleValue ?? 0
-            let prevTs = (acc[p]?["widget_ts"] as? NSNumber)?.doubleValue ?? -1
-            if ts > prevTs { acc[p] = obj }
+    static func readUsage(statusline: StatusFeeds) -> [AccountUsage] {
+        let latest = statusline.values.reduce(into: [Profile: StatusFeed]()) { acc, feed in
+            guard let p = Config.profile(named: feed.widgetProfile ?? ""), feed.rateLimits != nil else { return }
+            if (feed.widgetTs ?? 0) > (acc[p]?.widgetTs ?? -1) { acc[p] = feed }
         }
-        let costToday = statusline.values.reduce(into: [String: Double]()) { acc, obj in
-            guard let p = obj["widget_profile"] as? String,
-                  let ts = (obj["widget_ts"] as? NSNumber)?.doubleValue,
+        let costToday = statusline.values.reduce(into: [String: Double]()) { acc, feed in
+            guard let p = feed.widgetProfile, let ts = feed.widgetTs,
                   Calendar.current.isDateInToday(Date(timeIntervalSince1970: ts)),
-                  let c = ((obj["cost"] as? [String: Any])?["total_cost_usd"] as? NSNumber)?.doubleValue
+                  let c = feed.cost?.totalCostUsd
             else { return }
             acc[p, default: 0] += c
         }
         return Config.profiles.compactMap { p in
-            guard let obj = latest[p], let rl = obj["rate_limits"] as? [String: Any] else { return nil }
+            guard let feed = latest[p], let rl = feed.rateLimits else { return nil }
             return AccountUsage(
                 profile: p,
-                fiveHour: window(rl["five_hour"]),
-                sevenDay: window(rl["seven_day"]),
-                observedAt: Date(timeIntervalSince1970: (obj["widget_ts"] as? NSNumber)?.doubleValue ?? 0),
+                fiveHour: rl.fiveHour?.rateWindow,
+                sevenDay: rl.sevenDay?.rateWindow,
+                observedAt: Date(timeIntervalSince1970: feed.widgetTs ?? 0),
                 costToday: costToday[p.name] ?? 0
             )
         }
-    }
-
-    private static func window(_ raw: Any?) -> RateWindow? {
-        guard let d = raw as? [String: Any],
-              let used = (d["used_percentage"] as? NSNumber)?.doubleValue,
-              let resets = (d["resets_at"] as? NSNumber)?.doubleValue
-        else { return nil }
-        return RateWindow(usedPercent: used, resetsAt: Date(timeIntervalSince1970: resets))
     }
 
     private static func isAlive(_ pid: Int32) -> Bool {

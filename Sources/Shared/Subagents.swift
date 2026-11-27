@@ -13,7 +13,7 @@ enum Subagents {
     /// not counted as running.
     static let staleSeconds: TimeInterval = 30 * 60
 
-    static func running(for s: Session, statusline: [String: [String: Any]]) -> [RunningSubagent] {
+    static func running(for s: Session, statusline: StatusFeeds) -> [RunningSubagent] {
         guard let transcript = TranscriptReader.path(sessionId: s.id, statusline: statusline) else { return [] }
         let dir = transcript.deletingPathExtension().appendingPathComponent("subagents")
         let fm = FileManager.default
@@ -47,7 +47,7 @@ struct RestartCheck {
             + subagents.map { s, a in "\(a.count) subagent\(a.count == 1 ? "" : "s") running in \(s.name): \(a.map(\.description).joined(separator: ", "))" }
     }
 
-    static func now(sessions: [Session], statusline: [String: [String: Any]]) -> RestartCheck {
+    static func now(sessions: [Session], statusline: StatusFeeds) -> RestartCheck {
         RestartCheck(
             busy: sessions.filter { !$0.isBackground && ($0.status == .busy || $0.status == .shell) },
             subagents: sessions.compactMap { s in
