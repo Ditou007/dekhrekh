@@ -10,7 +10,8 @@ class Dekhrekh < Formula
   depends_on :macos
 
   def install
-    system "./build.sh"
+    # Ad-hoc signing: Homebrew's build environment cannot reach the keychain's certificates.
+    system({ "DEKHREKH_SIGN_ID" => "-" }, "./build.sh")
     prefix.install "build/Dekhrekh.app"
     bin.install "build/dekhrekh"
   end

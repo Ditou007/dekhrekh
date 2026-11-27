@@ -70,7 +70,7 @@ Or build it with Homebrew: `brew install --HEAD ditou007/tap/dekhrekh`.
 Run `dekhrekh setup --dry-run` to see the changes first. The first time you click a session, macOS
 asks whether Dekhrekh may control your terminal; allow it.
 
-Handoff, `tell` and restore type into a terminal tab, so they need [Ghostty](https://ghostty.org).
+Handoff, move, `tell` and restore type into a terminal tab, so they need [Ghostty](https://ghostty.org).
 Built and used on Apple Silicon; Intel should build but is untested.
 
 ## Configuration
@@ -170,7 +170,10 @@ Add `--json` for scripts. To let your agents use it, add a few lines to `CLAUDE.
 
 `./build.sh` builds into `build/` without installing. Set `DEKHREKH_SIGN_ID` to a code-signing identity
 to keep macOS permissions across rebuilds; otherwise it uses an Apple Development certificate if you
-have one, else ad-hoc signing.
+have one, else ad-hoc signing. It needs only the Command Line Tools; there is no Xcode project.
+
+`./test.sh` runs the unit checks in `Tests/`. They need no test framework, so they also run without
+Xcode. CI runs both on every pull request.
 
 ## License
 

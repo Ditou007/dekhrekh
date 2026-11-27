@@ -45,8 +45,11 @@ echo "built $CLI"
 [ "${1:-}" = "--install" ] || exit 0
 
 mkdir -p "$HOME/.local/bin" "$HOME/Applications" "$HOME/Library/LaunchAgents"
-ln -sf "$PWD/$CLI" "$HOME/.local/bin/dekhrekh"
-echo "linked ~/.local/bin/dekhrekh (make sure ~/.local/bin is on your PATH)"
+# A copy, not a link into this folder: the hooks that `dekhrekh setup` writes call this path, and
+# they must keep working if the clone is moved or deleted.
+rm -f "$HOME/.local/bin/dekhrekh"
+cp "$CLI" "$HOME/.local/bin/dekhrekh"
+echo "installed ~/.local/bin/dekhrekh (make sure ~/.local/bin is on your PATH)"
 
 pkill -x Dekhrekh 2>/dev/null || true
 rm -rf "$INSTALLED_APP"
