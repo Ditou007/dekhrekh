@@ -20,7 +20,23 @@ enum PRState: Int, Comparable {
 
     /// States that need the user to do something now.
     var needsYou: Bool { self == .failing || self == .reviewRequested || self == .readyToMerge || self == .changesRequested }
+
+    /// Where an open PR stands for the user; nil for someone else's PR that does not ask for their review.
+    /// `checks` and `reviewDecision` are GitHub's GraphQL `statusCheckRollup.state` and `reviewDecision`.
+    static func of(mine: Bool, draft: Bool, checks: String?, reviewDecision: String?, reviewRequested: Bool) -> PRState? {
+        if !mine { return reviewRequested ? .reviewRequested : nil }
+        if draft { return .draft }
+        if checks == "FAILURE" || checks == "ERROR" { return .failing }
+        if checks == "PENDING" || checks == "EXPECTED" { return .checksRunning }
+        switch reviewDecision {
+        case "APPROVED": return .readyToMerge
+        case "CHANGES_REQUESTED": return .changesRequested
+        default: return .awaitingReview
+        }
+    }
 }
+
+private let graphQLURL = URL(string: "https://api.github.com/graphql")!
 
 struct PullRequest: Identifiable {
     var id: String { "\(repo)#\(number)" }
@@ -67,7 +83,7 @@ extension CIClient {
             "query": prQuery,
             "variables": ["q": "repo:\(repo.fullName) is:pr is:open involves:\(repo.ghUser)"],
         ]
-        var req = try authorizedRequest(URL(string: "https://api.github.com/graphql")!, user: repo.ghUser)
+        var req = try authorizedRequest(graphQLURL, user: repo.ghUser)
         req.httpMethod = "POST"
         req.httpBody = try JSONSerialization.data(withJSONObject: body)
         let (data, resp) = try await URLSession.shared.data(for: req)
@@ -87,20 +103,10 @@ extension CIClient {
                 .compactMap { ($0["requestedReviewer"] as? [String: Any])?["login"] as? String }
             let checks = ((((n["commits"] as? [String: Any])?["nodes"] as? [[String: Any]])?.first?["commit"]
                 as? [String: Any])?["statusCheckRollup"] as? [String: Any])?["state"] as? String
-            let mine = author == repo.ghUser
-
-            let state: PRState? = {
-                if !mine { return requested.contains(repo.ghUser) ? .reviewRequested : nil }
-                if n["isDraft"] as? Bool == true { return .draft }
-                if checks == "FAILURE" || checks == "ERROR" { return .failing }
-                if checks == "PENDING" || checks == "EXPECTED" { return .checksRunning }
-                switch n["reviewDecision"] as? String {
-                case "APPROVED": return .readyToMerge
-                case "CHANGES_REQUESTED": return .changesRequested
-                default: return .awaitingReview
-                }
-            }()
-            guard let state else { return nil }
+            guard let state = PRState.of(
+                mine: author == repo.ghUser, draft: n["isDraft"] as? Bool == true, checks: checks,
+                reviewDecision: n["reviewDecision"] as? String, reviewRequested: requested.contains(repo.ghUser)
+            ) else { return nil }
             return PullRequest(
                 repo: repo.label, number: number, title: n["title"] as? String ?? "", author: author,
                 state: state, updatedAt: iso.date(from: n["updatedAt"] as? String ?? "") ?? Date(), url: url
