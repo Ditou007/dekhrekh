@@ -25,8 +25,8 @@ enum TranscriptReader {
     /// Only the tail is read: transcripts reach tens of MB and the recent part is what matters.
     static let tailBytes = 3_000_000
 
-    static func path(sessionId: String, statusline: [String: [String: Any]]) -> URL? {
-        if let p = statusline[sessionId]?["transcript_path"] as? String, FileManager.default.fileExists(atPath: p) {
+    static func path(sessionId: String, statusline: StatusFeeds) -> URL? {
+        if let p = statusline[sessionId]?.transcriptPath, FileManager.default.fileExists(atPath: p) {
             return URL(fileURLWithPath: p)
         }
         let roots = Config.profiles.map(\.projectsDir)
@@ -41,7 +41,7 @@ enum TranscriptReader {
         return nil
     }
 
-    static func context(for s: Session, statusline: [String: [String: Any]],
+    static func context(for s: Session, statusline: StatusFeeds,
                         prompts promptLimit: Int = 5, replies replyLimit: Int = 2,
                         actions actionLimit: Int = 10) -> SessionContext {
         let url = path(sessionId: s.id, statusline: statusline)

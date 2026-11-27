@@ -56,7 +56,7 @@ enum Move {
         return t
     }
 
-    static func command(for s: Session, to target: Profile, statusline: [String: [String: Any]]) -> String {
+    static func command(for s: Session, to target: Profile, statusline: StatusFeeds) -> String {
         let l = Handoff.launch(for: s, statusline: statusline)
         var cmd = target.launch + " --resume \(Shell.quote(s.id))"
         if let m = l.model { cmd += " --model \(Shell.quote(m))" }
@@ -65,7 +65,7 @@ enum Move {
     }
 
     /// Runs the move, blocking. `to` nil picks the target with the most headroom.
-    static func run(_ s: Session, to: Profile?, statusline: [String: [String: Any]], usage: [AccountUsage],
+    static func run(_ s: Session, to: Profile?, statusline: StatusFeeds, usage: [AccountUsage],
                     force: Bool, progress: (String) -> Void) -> Result<Profile, Refusal> {
         let candidates = targets(for: s, usage: usage)
         guard let target = to ?? candidates.first else {

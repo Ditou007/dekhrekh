@@ -9,18 +9,24 @@ enum Questions {
     static let tailCharacters = 500
 
     private static var cache: [String: (modified: Date, question: String?)] = [:]
+    private static let lock = NSLock()
 
     /// The question an idle session ended its turn with, or nil.
-    static func pending(for s: Session, statusline: [String: [String: Any]]) -> String? {
+    static func pending(for s: Session, statusline: StatusFeeds) -> String? {
         guard s.status == .idle, !s.isBackground,
               let path = TranscriptReader.path(sessionId: s.id, statusline: statusline)
         else { return nil }
         let modified = (try? FileManager.default.attributesOfItem(atPath: path.path)[.modificationDate] as? Date)
             ?? .distantPast
-        if let hit = cache[s.id], hit.modified == modified { return hit.question }
+        lock.lock()
+        let hit = cache[s.id]
+        lock.unlock()
+        if let hit, hit.modified == modified { return hit.question }
         let ctx = TranscriptReader.context(for: s, statusline: statusline, prompts: 0, replies: 1, actions: 0)
         let q = ctx.replies.last.flatMap(question(in:))
+        lock.lock()
         cache[s.id] = (modified, q)
+        lock.unlock()
         return q
     }
 

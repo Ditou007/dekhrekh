@@ -50,7 +50,7 @@ enum SessionSnapshots {
     /// Saves every open session, background ones included (nothing restarts the background daemon at
     /// login), with the subagents each has running. An empty list never overwrites a saved one, so a
     /// fresh boot cannot wipe the last state.
-    static func save(_ sessions: [Session], statusline: [String: [String: Any]], bootTime: Date,
+    static func save(_ sessions: [Session], statusline: StatusFeeds, bootTime: Date,
                      branch: (String) -> String? = { _ in nil }) {
         rotateIfRebooted(bootTime: bootTime)
         let keep = sessions
