@@ -14,7 +14,7 @@ func runWait(args: [String]) -> Never {
         exit(2)
     }
     let branchArg = args.first { !$0.hasPrefix("-") && $0 != "ci" }
-    guard let branch = branchArg ?? currentBranch(cwd) else {
+    guard let branch = branchArg ?? Git.branch(at: cwd) else {
         FileHandle.standardError.write("dekhrekh ci --wait: no branch given and none checked out here\n".data(using: .utf8)!)
         exit(2)
     }
@@ -62,18 +62,4 @@ func runWait(args: [String]) -> Never {
         Frame.close()
         exit(r.passed ? 0 : 1)
     }
-}
-
-private func currentBranch(_ cwd: String) -> String? {
-    let p = Process()
-    p.executableURL = URL(fileURLWithPath: "/usr/bin/git")
-    p.arguments = ["-C", cwd, "branch", "--show-current"]
-    let out = Pipe()
-    p.standardOutput = out
-    p.standardError = Pipe()
-    guard (try? p.run()) != nil else { return nil }
-    p.waitUntilExit()
-    let b = String(decoding: out.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
-        .trimmingCharacters(in: .whitespacesAndNewlines)
-    return b.isEmpty ? nil : b
 }

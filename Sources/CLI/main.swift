@@ -127,9 +127,9 @@ let ci = await ciResults
 let home = await homeResult
 let prs = await prResult
 
-func eta(_ u: AccountUsage, _ name: String, _ w: RateWindow?) -> Date? {
-    guard let w, w.resetsAt > now else { return nil }
-    return UsageHistory.limitETA(profile: u.profile, window: name, current: w, samples: usageSamples, now: now)
+func eta(_ u: AccountUsage, _ window: UsageWindow) -> Date? {
+    guard let w = u[window], w.resetsAt > now else { return nil }
+    return UsageHistory.limitETA(profile: u.profile, window: window, current: w, samples: usageSamples, now: now)
 }
 
 // MARK: json
@@ -163,8 +163,8 @@ if asJSON {
         out["usage"] = accounts.map { u -> [String: Any] in
             [
                 "profile": u.profile.rawValue,
-                "five_hour": windowJSON(u.fiveHour, eta: eta(u, "5h", u.fiveHour)),
-                "seven_day": windowJSON(u.sevenDay, eta: eta(u, "7d", u.sevenDay)),
+                "five_hour": windowJSON(u.fiveHour, eta: eta(u, .fiveHour)),
+                "seven_day": windowJSON(u.sevenDay, eta: eta(u, .sevenDay)),
                 "observed_at": iso.string(from: u.observedAt),
                 "cost_today_usd": u.costToday,
             ]
@@ -301,14 +301,15 @@ if sections.contains("usage") {
                 print("  \(pad(p.title, 12))  \(dim("no data yet"))")
                 continue
             }
-            func w(_ name: String, _ x: RateWindow?) -> String {
-                guard let x, x.resetsAt > now else { return "\(name) " + dim("reset") }
+            func w(_ window: UsageWindow) -> String {
+                let name = window.rawValue
+                guard let x = u[window], x.resetsAt > now else { return "\(name) " + dim("reset") }
                 let t = "\(name) \(Int(x.usedPercent))%"
                 let colored = x.usedPercent >= Config.usageWarnUsed ? red(t) : t
-                if let e = eta(u, name, x) { return colored + amber(" (limit ~\(clockTime(e)), resets \(until(x.resetsAt, now: now)))") }
+                if let e = eta(u, window) { return colored + amber(" (limit ~\(clockTime(e)), resets \(until(x.resetsAt, now: now)))") }
                 return colored + dim(" (resets \(until(x.resetsAt, now: now)))")
             }
-            print("  \(pad(p.title, 12))  \(w("5h", u.fiveHour))   \(w("7d", u.sevenDay))   \(dim("seen \(ago(u.observedAt, now: now)) ago" + (u.costToday > 0 ? String(format: "   $%.2f in sessions active today (API prices)", u.costToday) : "")))")
+            print("  \(pad(p.title, 12))  \(w(.fiveHour))   \(w(.sevenDay))   \(dim("seen \(ago(u.observedAt, now: now)) ago" + (u.costToday > 0 ? String(format: "   $%.2f in sessions active today (API prices)", u.costToday) : "")))")
         }
     }
 }

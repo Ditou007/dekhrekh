@@ -20,14 +20,14 @@ func runClaim(args: [String]) -> Never {
     }
     let cwd = FileManager.default.currentDirectoryPath
     do {
-        try Claims.write(Claim(sessionId: me.id, note: note, cwd: cwd, branch: gitBranchAt(cwd), at: Date()))
+        try Claims.write(Claim(sessionId: me.id, note: note, cwd: cwd, branch: Git.branch(at: cwd), at: Date()))
     } catch {
         FileHandle.standardError.write("dekhrekh claim: \(error.localizedDescription)\n".data(using: .utf8)!)
         exit(1)
     }
     print("claimed for \(me.name): \(note)")
     let others = sessions.filter { $0.id != me.id }.compactMap { s in Claims.read(for: s.id).map { (s, $0) } }
-    let clash = others.filter { _, c in c.cwd == cwd || (c.branch != nil && c.branch == gitBranchAt(cwd)) }
+    let clash = others.filter { _, c in c.cwd == cwd || (c.branch != nil && c.branch == Git.branch(at: cwd)) }
     if !clash.isEmpty {
         Frame.open()
         print("Heads up: other live sessions claim the same folder or branch:")
@@ -40,7 +40,7 @@ func runClaim(args: [String]) -> Never {
 func runClaims(json: Bool) -> Never {
     let statusline = SessionReader.readStatusline()
     let sessions = SessionReader.readSessions(statusline: statusline, includeStale: true)
-    let rows = sessions.map { s in (s, Claims.read(for: s.id), gitBranchAt(s.cwd)) }
+    let rows = sessions.map { s in (s, Claims.read(for: s.id), Git.branch(at: s.cwd)) }
     if json {
         let out = rows.map { s, c, b -> [String: Any] in
             ["name": s.name, "session_id": s.id, "status": s.status.rawValue, "cwd": s.cwd,
@@ -61,18 +61,4 @@ func runClaims(json: Bool) -> Never {
     }
     Frame.close()
     exit(0)
-}
-
-func gitBranchAt(_ cwd: String) -> String? {
-    let p = Process()
-    p.executableURL = URL(fileURLWithPath: "/usr/bin/git")
-    p.arguments = ["--no-optional-locks", "-C", cwd, "branch", "--show-current"]
-    let out = Pipe()
-    p.standardOutput = out
-    p.standardError = Pipe()
-    guard (try? p.run()) != nil else { return nil }
-    p.waitUntilExit()
-    let b = String(decoding: out.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
-        .trimmingCharacters(in: .whitespacesAndNewlines)
-    return p.terminationStatus == 0 && !b.isEmpty ? b : nil
 }

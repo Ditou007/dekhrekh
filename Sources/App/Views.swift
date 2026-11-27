@@ -638,8 +638,9 @@ struct PanelView: View {
                 }
             }
             .frame(width: 84, alignment: .leading)
-            usageWindow("5h", u?.fiveHour, eta: u.flatMap { store.limitETA($0, window: "5h", $0.fiveHour) })
-            usageWindow("7d", u?.sevenDay, eta: u.flatMap { store.limitETA($0, window: "7d", $0.sevenDay) })
+            ForEach(UsageWindow.allCases, id: \.self) { window in
+                usageWindow(window.rawValue, u?[window], eta: u.flatMap { store.limitETA($0, window) })
+            }
         }
     }
 

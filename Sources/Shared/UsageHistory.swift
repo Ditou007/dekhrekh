@@ -12,8 +12,8 @@ enum UsageHistory {
     static let shortSpan: (lookback: TimeInterval, minimum: TimeInterval) = (3600, 600)
     static let weekSpan: (lookback: TimeInterval, minimum: TimeInterval) = (86400, 21600)
 
-    static func rateSpan(_ window: String) -> (lookback: TimeInterval, minimum: TimeInterval) {
-        window == "7d" ? weekSpan : shortSpan
+    static func rateSpan(_ window: UsageWindow) -> (lookback: TimeInterval, minimum: TimeInterval) {
+        window == .sevenDay ? weekSpan : shortSpan
     }
 
     struct Sample {
@@ -40,8 +40,9 @@ enum UsageHistory {
     static func record(_ usage: [AccountUsage], existing: [Sample]) -> [Sample] {
         let now = Date().timeIntervalSince1970
         let fresh = usage.flatMap { u -> [Sample] in
-            [("5h", u.fiveHour), ("7d", u.sevenDay)].compactMap { name, w in
-                guard let w else { return nil }
+            UsageWindow.allCases.compactMap { window in
+                guard let w = u[window] else { return nil }
+                let name = window.rawValue
                 let last = existing.last { $0.profile == u.profile.rawValue && $0.window == name }
                 let unchanged = last.map { $0.used == w.usedPercent && $0.resetsAt == w.resetsAt.timeIntervalSince1970 } ?? false
                 return unchanged ? nil : Sample(profile: u.profile.rawValue, window: name,
@@ -52,23 +53,25 @@ enum UsageHistory {
         let kept = existing.filter { now - $0.at < keepSeconds }
         guard !fresh.isEmpty || kept.count != existing.count else { return existing }
         let all = kept + fresh
-        let text = all.map {
-            "{\"p\":\"\($0.profile)\",\"w\":\"\($0.window)\",\"r\":\(Int($0.resetsAt)),\"u\":\($0.used),\"t\":\(Int($0.at))}"
-        }.joined(separator: "\n") + "\n"
+        let lines = all.compactMap { s -> String? in
+            let obj: [String: Any] = ["p": s.profile, "w": s.window, "r": Int(s.resetsAt), "u": s.used, "t": Int(s.at)]
+            return (try? JSONSerialization.data(withJSONObject: obj, options: .sortedKeys)).map { String(decoding: $0, as: UTF8.self) }
+        }
+        let text = lines.joined(separator: "\n") + "\n"
         try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
         try? text.write(to: file, atomically: true, encoding: .utf8)
         return all
     }
 
     /// When the window will reach 100% at the recent rate, if that comes before it resets.
-    static func limitETA(profile: Profile, window name: String, current: RateWindow, samples: [Sample], now: Date) -> Date? {
+    static func limitETA(profile: Profile, window: UsageWindow, current: RateWindow, samples: [Sample], now: Date) -> Date? {
         let r = current.resetsAt.timeIntervalSince1970
         let t = now.timeIntervalSince1970
         // Early in a window a few minutes of work extrapolates wildly; forecast only past halfway.
         guard current.usedPercent >= minUsedForForecast else { return nil }
-        let limits = rateSpan(name)
+        let limits = rateSpan(window)
         let recent = samples.filter {
-            $0.profile == profile.rawValue && $0.window == name && $0.resetsAt == r && t - $0.at <= limits.lookback
+            $0.profile == profile.rawValue && $0.window == window.rawValue && $0.resetsAt == r && t - $0.at <= limits.lookback
         }
         guard let first = recent.min(by: { $0.at < $1.at }) else { return nil }
         let span = t - first.at

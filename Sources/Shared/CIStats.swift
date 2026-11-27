@@ -34,18 +34,11 @@ extension CIClient {
         return out
     }
 
-    private func getJSON(_ url: URL, user: String) async throws -> [String: Any] {
-        let (data, resp) = try await URLSession.shared.data(for: try authorizedRequest(url, user: user))
-        guard (resp as? HTTPURLResponse)?.statusCode == 200 else {
-            throw CIError.http((resp as? HTTPURLResponse)?.statusCode ?? 0)
-        }
-        return try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
-    }
-
     private func stats(_ repo: RepoWatch, limit: Int) async throws -> RepoStats {
         let iso = ISO8601DateFormatter()
-        let base = "https://api.github.com/repos/\(repo.fullName)/actions/runs"
-        let list = try await getJSON(URL(string: "\(base)?status=completed&per_page=\(limit)")!, user: repo.ghUser)
+        let list = try await getJSON(Self.apiURL(repo, "/actions/runs", query: [
+            URLQueryItem(name: "status", value: "completed"), URLQueryItem(name: "per_page", value: "\(limit)"),
+        ]), user: repo.ghUser)
         let runs = (list["workflow_runs"] as? [[String: Any]] ?? []).filter { run in
             guard run["conclusion"] as? String != "cancelled" else { return false }
             guard !(repo.actors.isEmpty && repo.branches.isEmpty) else { return true }
@@ -58,7 +51,8 @@ extension CIClient {
         var walls: [Double] = []
         for run in runs {
             guard let id = (run["id"] as? NSNumber)?.intValue else { continue }
-            let jobs = try await getJSON(URL(string: "\(base)/\(id)/jobs?per_page=100")!, user: repo.ghUser)["jobs"]
+            let jobs = try await getJSON(Self.apiURL(repo, "/actions/runs/\(id)/jobs", query: [URLQueryItem(name: "per_page", value: "100")]),
+                                         user: repo.ghUser)["jobs"]
                 as? [[String: Any]] ?? []
             var firstCreated: Date?
             var lastDone: Date?

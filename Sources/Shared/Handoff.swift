@@ -99,11 +99,11 @@ enum Handoff {
 
         let l = launch(for: s, statusline: statusline)
         var cmd = s.profile.launch
-        if let m = l.model { cmd += " --model \(m)" }
-        if let e = l.effort { cmd += " --effort \(e)" }
-        cmd += " -n \(shellQuote(newName))"
+        if let m = l.model { cmd += " --model \(Shell.quote(m))" }
+        if let e = l.effort { cmd += " --effort \(Shell.quote(e))" }
+        cmd += " -n \(Shell.quote(newName))"
         let relay = agents.isEmpty ? "" : " The previous session (\(s.name)) stays open only to forward results from its \(agents.count) running subagents; they arrive as messages from it. Take over all new work yourself."
-        cmd += " " + shellQuote("Continue the work from the handoff in \(file.path). Read it first, then carry on with the next steps it lists." + relay)
+        cmd += " " + Shell.quote("Continue the work from the handoff in \(file.path). Read it first, then carry on with the next steps it lists." + relay)
         if let err = openTab(cwd: s.cwd, command: cmd) { return .failure(.openFailed(err)) }
         progress("opened a new session: \(cmd)")
         return .success(file.path)
@@ -114,18 +114,13 @@ enum Handoff {
         tell application "Ghostty"
           activate
           set cfg to new surface configuration
-          set initial working directory of cfg to "\(appleEscape(cwd))"
-          set initial input of cfg to "\(appleEscape(command))" & return
+          set initial working directory of cfg to "\(appleScriptString(cwd))"
+          set initial input of cfg to "\(appleScriptString(command))" & return
           new tab in front window with configuration cfg
         end tell
         """
         var error: NSDictionary?
         NSAppleScript(source: script)?.executeAndReturnError(&error)
         return error.map { ($0[NSAppleScript.errorMessage] as? String) ?? "\($0)" }
-    }
-
-    static func shellQuote(_ s: String) -> String { "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'" }
-    private static func appleEscape(_ s: String) -> String {
-        s.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
     }
 }

@@ -26,13 +26,13 @@ extension CIClient {
     func waitForBranch(repo: RepoWatch, branch: String, timeout: TimeInterval, logLines: Int,
                        progress: (String) -> Void) async throws -> WaitResult {
         let deadline = Date().addingTimeInterval(timeout)
-        let base = "https://api.github.com/repos/\(repo.fullName)/actions"
         var lastNote = ""
 
         while true {
-            var comps = URLComponents(string: "\(base)/runs")!
-            comps.queryItems = [URLQueryItem(name: "branch", value: branch), URLQueryItem(name: "per_page", value: "30")]
-            let runs = try await json(comps.url!, user: repo.ghUser)["workflow_runs"] as? [[String: Any]] ?? []
+            let url = Self.apiURL(repo, "/actions/runs", query: [
+                URLQueryItem(name: "branch", value: branch), URLQueryItem(name: "per_page", value: "30"),
+            ])
+            let runs = try await getJSON(url, user: repo.ghUser)["workflow_runs"] as? [[String: Any]] ?? []
             let sha = runs.first?["head_sha"] as? String ?? ""
             // A re-triggered workflow leaves older runs on the same commit; the newest one per
             // workflow decides (runs arrive newest first).
@@ -51,7 +51,7 @@ extension CIClient {
                 var failures: [FailedJob] = []
                 for r in current where !okConclusions.contains(r["conclusion"] as? String ?? "") {
                     guard let id = (r["id"] as? NSNumber)?.intValue else { continue }
-                    failures += try await failedJobs(base: base, runId: id, user: repo.ghUser, logLines: logLines)
+                    failures += try await failedJobs(repo: repo, runId: id, logLines: logLines)
                 }
                 return WaitResult(repo: repo.label, branch: branch, sha: String(sha.prefix(7)),
                                   runs: summary, failures: failures, timedOut: false)
@@ -72,33 +72,26 @@ extension CIClient {
         }
     }
 
-    private func json(_ url: URL, user: String) async throws -> [String: Any] {
-        let (data, resp) = try await URLSession.shared.data(for: try authorizedRequest(url, user: user))
-        guard (resp as? HTTPURLResponse)?.statusCode == 200 else {
-            throw CIError.http((resp as? HTTPURLResponse)?.statusCode ?? 0)
-        }
-        return try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
-    }
-
-    private func failedJobs(base: String, runId: Int, user: String, logLines: Int) async throws -> [FailedJob] {
-        let jobs = try await json(URL(string: "\(base)/runs/\(runId)/jobs?per_page=100")!, user: user)["jobs"]
+    private func failedJobs(repo: RepoWatch, runId: Int, logLines: Int) async throws -> [FailedJob] {
+        let url = Self.apiURL(repo, "/actions/runs/\(runId)/jobs", query: [URLQueryItem(name: "per_page", value: "100")])
+        let jobs = try await getJSON(url, user: repo.ghUser)["jobs"]
             as? [[String: Any]] ?? []
         var out: [FailedJob] = []
-        for j in jobs where ["failure", "timed_out", "startup_failure"].contains(j["conclusion"] as? String ?? "") {
+        for j in jobs where failedConclusions.contains(j["conclusion"] as? String ?? "") {
             let step = (j["steps"] as? [[String: Any]] ?? [])
                 .first { $0["conclusion"] as? String == "failure" }?["name"] as? String
             let id = (j["id"] as? NSNumber)?.intValue ?? 0
             out.append(FailedJob(name: j["name"] as? String ?? "?", step: step,
                                  url: j["html_url"] as? String ?? "",
-                                 logTail: (try? await logTail(base: base, jobId: id, user: user, lines: logLines)) ?? []))
+                                 logTail: (try? await logTail(repo: repo, jobId: id, lines: logLines)) ?? []))
         }
         return out
     }
 
     /// The job log comes back as a redirect to a signed download URL; URLSession follows it.
-    private func logTail(base: String, jobId: Int, user: String, lines: Int) async throws -> [String] {
+    private func logTail(repo: RepoWatch, jobId: Int, lines: Int) async throws -> [String] {
         let (data, resp) = try await URLSession.shared.data(
-            for: try authorizedRequest(URL(string: "\(base)/jobs/\(jobId)/logs")!, user: user))
+            for: try authorizedRequest(Self.apiURL(repo, "/actions/jobs/\(jobId)/logs"), user: repo.ghUser))
         guard (resp as? HTTPURLResponse)?.statusCode == 200 else { return [] }
         let noise = try NSRegularExpression(pattern: #"^\d{4}-\d\d-\d\dT[\d:.]+Z |\u001B\[[0-9;]*[A-Za-z]"#)
         let all = String(decoding: data, as: UTF8.self)
@@ -115,14 +108,6 @@ extension CIClient {
 
 /// The watched repo whose GitHub remote matches the git checkout at `cwd`.
 func repoForFolder(_ cwd: String) -> RepoWatch? {
-    let p = Process()
-    p.executableURL = URL(fileURLWithPath: "/usr/bin/git")
-    p.arguments = ["-C", cwd, "remote", "-v"]
-    let out = Pipe()
-    p.standardOutput = out
-    p.standardError = Pipe()
-    guard (try? p.run()) != nil else { return nil }
-    p.waitUntilExit()
-    let remotes = String(decoding: out.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self).lowercased()
+    guard let remotes = Git.remotes(at: cwd) else { return nil }
     return Config.repos.first { remotes.contains($0.fullName.lowercased()) }
 }

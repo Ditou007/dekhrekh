@@ -5,7 +5,9 @@ struct RepoWatch {
     let label: String
     let fullName: String
     /// GitHub login to query as (`gh auth token --user`); also whose PRs and review requests count.
-    let ghUser: String
+    /// Nil means whoever `gh` is signed in as, looked up on first use (see `GitHubLogin`).
+    let configuredUser: String?
+    var ghUser: String { configuredUser ?? GitHubLogin.active }
     /// When empty, every run counts. Otherwise only runs by these actors or on `branches`.
     let actors: Set<String>
     let branches: Set<String>
@@ -68,12 +70,10 @@ struct UserConfig {
             if let o = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] { obj = o }
             else { error = "\(path.path) is not valid JSON; using defaults" }
         }
-        let gh = (obj["ghPath"] as? String).map(expand)
-            ?? ["/opt/homebrew/bin/gh", "/usr/local/bin/gh", "/usr/bin/gh"].first { FileManager.default.isExecutableFile(atPath: $0) }
-            ?? "gh"
+        let gh = (obj["ghPath"] as? String).map(expand) ?? Shell.which("gh") ?? "/opt/homebrew/bin/gh"
         return UserConfig(
             profiles: parseProfiles(obj["profiles"]),
-            repos: parseRepos(obj["repos"], ghPath: gh),
+            repos: parseRepos(obj["repos"]),
             server: parseServer(obj["server"]),
             stateDir: URL(fileURLWithPath: expand(obj["stateDir"] as? String ?? "~/.claude/state/dekhrekh")),
             ghPath: gh,
@@ -93,13 +93,13 @@ struct UserConfig {
         return [Profile(name: "default", title: "Claude Code", tag: "", claudeDir: URL(fileURLWithPath: dir), launch: "claude", group: "")]
     }
 
-    private static func parseRepos(_ raw: Any?, ghPath: String) -> [RepoWatch] {
+    private static func parseRepos(_ raw: Any?) -> [RepoWatch] {
         (raw as? [[String: Any]] ?? []).compactMap { r in
-            guard let full = r["repo"] as? String, full.contains("/") else { return nil }
+            guard let full = r["repo"] as? String, let name = repoName(full) else { return nil }
             return RepoWatch(
-                label: r["label"] as? String ?? String(full.split(separator: "/").last!),
+                label: r["label"] as? String ?? name,
                 fullName: full,
-                ghUser: r["ghUser"] as? String ?? activeLogin(ghPath),
+                configuredUser: r["ghUser"] as? String,
                 actors: Set(r["actors"] as? [String] ?? []),
                 branches: Set(r["branches"] as? [String] ?? [])
             )
@@ -118,22 +118,15 @@ struct UserConfig {
         )
     }
 
-    /// The login `gh` is signed in as, for repos that do not name one. Looked up once.
-    private static var cachedLogin: String?
-    private static func activeLogin(_ gh: String) -> String {
-        if let l = cachedLogin { return l }
-        let proc = Process()
-        proc.executableURL = URL(fileURLWithPath: gh)
-        proc.arguments = ["api", "user", "--jq", ".login"]
-        let out = Pipe()
-        proc.standardOutput = out
-        proc.standardError = Pipe()
-        try? proc.run()
-        proc.waitUntilExit()
-        let login = String(data: out.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)?
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        cachedLogin = login
-        return login
+    private static let repoNameChars = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_."))
+
+    /// The `name` of an `owner/name` repo; nil for anything else, so a typo cannot reach a GitHub URL.
+    static func repoName(_ full: String) -> String? {
+        let parts = full.split(separator: "/", omittingEmptySubsequences: false)
+        guard parts.count == 2,
+              parts.allSatisfy({ !$0.isEmpty && $0.unicodeScalars.allSatisfy(repoNameChars.contains) })
+        else { return nil }
+        return String(parts[1])
     }
 }
 
@@ -218,4 +211,39 @@ enum Config {
     static let panelHeaderHeight: CGFloat = 42
 
     static let terminalBundleId = "com.mitchellh.ghostty"
+}
+
+/// The login `gh` is signed in as, for repos that name no `ghUser`. Looked up at most once a day
+/// and kept in the state folder: the status-line and hook commands are short-lived processes, and
+/// asking GitHub on every run would put a network round trip in front of each one.
+enum GitHubLogin {
+    private static let maxAge: TimeInterval = 24 * 3600
+    private static var file: URL { Config.stateDir.appendingPathComponent("gh-login") }
+    private static let lock = NSLock()
+    private static var cached: String?
+
+    static var active: String {
+        lock.lock()
+        defer { lock.unlock() }
+        if let cached { return cached }
+        let login = stored() ?? fetch()
+        cached = login
+        return login
+    }
+
+    private static func stored() -> String? {
+        guard let attrs = try? FileManager.default.attributesOfItem(atPath: file.path),
+              let modified = attrs[.modificationDate] as? Date,
+              Date().timeIntervalSince(modified) < maxAge,
+              let login = try? String(contentsOf: file, encoding: .utf8), !login.isEmpty
+        else { return nil }
+        return login
+    }
+
+    private static func fetch() -> String {
+        guard let r = Shell.run(Config.ghPath, ["api", "user", "--jq", ".login"]), r.ok, !r.text.isEmpty else { return "" }
+        try? FileManager.default.createDirectory(at: Config.stateDir, withIntermediateDirectories: true)
+        try? r.text.write(to: file, atomically: true, encoding: .utf8)
+        return r.text
+    }
 }
