@@ -1,6 +1,11 @@
 import AppKit
 import SwiftUI
 
+/// SwiftUI's `State` property wrapper under a name that no macro shares. From the macOS 27 SDK on,
+/// `@State` resolves to a macro whose plugin ships only with Xcode, so it fails to compile with
+/// the Command Line Tools alone. The alias reaches the same property wrapper and builds with either.
+typealias ViewState = SwiftUI.State
+
 enum Palette {
     static let bg = Color(red: 0.08, green: 0.085, blue: 0.095)
     static let border = Color.white.opacity(0.10)
@@ -102,7 +107,7 @@ struct SectionLabel: View {
 struct HoverRow<Content: View>: View {
     let action: () -> Void
     @ViewBuilder let content: Content
-    @State private var hovering = false
+    @ViewState private var hovering = false
 
     var body: some View {
         Button(action: action) {
@@ -132,8 +137,8 @@ struct Section<Content: View>: View {
 
 struct PanelView: View {
     @ObservedObject var store: Store
-    @State private var showAllActivePRs = false
-    @State private var openPRGroups: Set<Int> = []
+    @ViewState private var showAllActivePRs = false
+    @ViewState private var openPRGroups: Set<Int> = []
 
     var body: some View {
         VStack(spacing: 0) {
